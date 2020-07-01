@@ -50,6 +50,8 @@ type Operation interface {
 	AllMetadata() map[string]string
 	// GetAuthor return the author identity
 	GetAuthor() identity.Interface
+	// GetAuthor sets the author identity
+	SetAuthor(identity.Interface)
 
 	// sign-post method for gqlgen
 	IsOperation()
@@ -216,4 +218,9 @@ func (op *OpBase) AllMetadata() map[string]string {
 // GetAuthor return author identity
 func (op *OpBase) GetAuthor() identity.Interface {
 	return op.Author
+}
+
+// SetAuthor return author identity
+func (op *OpBase) SetAuthor(author identity.Interface) {
+	op.Author = author
 }
