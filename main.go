@@ -11,9 +11,17 @@ import (
 
 const rootCommandName = "git-bug-migration"
 
+// These variables are initialized externally during the build. See the Makefile.
+var GitCommit = "unset"
+var GitLastTag = "unset"
+var GitExactTag = "unset"
+
 var repo mg1r.ClockedRepo
 
 func main() {
+	// TODO: might be nicer under a --version flag
+	fmt.Printf("%s version %s\n\n", rootCommandName, version())
+
 	Migrate01()
 }
 
@@ -114,4 +122,15 @@ func Migrate01() {
 			}
 		}
 	}
+}
+
+func version() string {
+	if GitExactTag == "undefined" {
+		GitExactTag = ""
+	}
+	version := GitLastTag
+	if GitExactTag == "" {
+		version = fmt.Sprintf("%s-dev-%.10s", version, GitCommit)
+	}
+	return version
 }
