@@ -14,6 +14,10 @@ const rootCommandName = "git-bug-migration"
 var repo mg1r.ClockedRepo
 
 func main() {
+	Migrate01()
+}
+
+func Migrate01() {
 	cwd, err := os.Getwd()
 	if err != nil {
 		panic(fmt.Errorf("unable to get the current working directory: %q", err))

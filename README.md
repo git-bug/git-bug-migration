@@ -16,6 +16,11 @@ Sections:
  - Identity
  - OperationPack
  - Config
+
+Note: All imports follow the format mg{migration folder number}{first letter of package}
+For example, to import the bug from the migration 1 folder, its name should be mg1b.
+To import sub-packages, put the first letter of each parent package.
+For example, to import the lamport clock from the migration 1 folder, its name should be mg1ul.
  
 Todo for migration tool:  
  - Remove legacy author and create new identity out of it -- forwards compatible
