@@ -50,7 +50,7 @@ type Operation interface {
 	AllMetadata() map[string]string
 	// GetAuthor return the author identity
 	GetAuthor() identity.Interface
-	// GetAuthor sets the author identity
+	// SetAuthor sets the author identity
 	SetAuthor(identity.Interface)
 
 	// sign-post method for gqlgen

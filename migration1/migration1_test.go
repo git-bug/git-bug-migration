@@ -1,6 +1,7 @@
-package main
+package migration1
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -46,8 +47,10 @@ func TestMigrate01(t *testing.T) {
 	var unix = time.Now().Unix()
 
 	dir, err := createFolder()
-	os.Chdir(dir)
 	assert.Nil(t, err, "got error when creating temporary repository dir with version 0")
+	err = os.Chdir(dir)
+	assert.Nil(t, err, "got error when opening temporary repository folder")
+
 	repo0, err := mg0r.InitGitRepo(dir)
 
 	bug0, _, err := mg0b.Create(oldVinc, unix, "bug1", "beep bop bug")
@@ -56,10 +59,11 @@ func TestMigrate01(t *testing.T) {
 	err = bug0.Commit(repo0)
 	assert.Nil(t, err, "got error when committing bug")
 
-	Migrate01()
-
 	repo1, err := mg1r.NewGitRepo(dir, []mg1r.ClockLoader{mg1b.ClockLoader})
 	assert.Nil(t, err, "got error when loading repository with version 1")
+
+	err = Migrate01(repo1)
+	assert.Nil(t, err, "got error when migrating repository with version 1")
 
 	bugs1 := mg1b.ReadAllLocalBugs(repo1)
 	bug1 := (<-bugs1).Bug
@@ -78,6 +82,9 @@ func TestMigrate01(t *testing.T) {
 	var bug mg1b.StreamedBug
 	assert.Equal(t, bug, <-bugs1, "got additional bug when getting bugs in repository")
 
-	os.Chdir(cwd)
-	removeFolder(dir)
+	err = os.Chdir(cwd)
+	err = removeFolder(dir)
+	if err != nil {
+		fmt.Printf("got error when removing temporary folder: %q", err)
+	}
 }
