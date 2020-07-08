@@ -9,13 +9,43 @@ import (
 
 	"github.com/spf13/cobra"
 
+	mg1 "github.com/MichaelMure/git-bug-migration/migration1"
 	mg1b "github.com/MichaelMure/git-bug-migration/migration1/bug"
 	mg1r "github.com/MichaelMure/git-bug-migration/migration1/repository"
 )
 
 const rootCommandName = "git-bug-migration"
 
-var repo mg1r.ClockedRepo
+var (
+	repo mg1r.ClockedRepo
+
+	// These variables are initialized externally during the build. See the Makefile.
+	GitCommit   = ""
+	GitLastTag  = ""
+	GitExactTag = ""
+
+	rootCmdShowVersion bool
+)
+
+func runRootCmd(_ *cobra.Command, args []string) error {
+	if rootCmdShowVersion {
+		fmt.Printf(version())
+		return nil
+	}
+
+	return mg1.Migrate01(repo)
+}
+
+func version() string {
+	if GitExactTag == "undefined" {
+		GitExactTag = ""
+	}
+	version := GitLastTag
+	if GitExactTag == "" {
+		version = fmt.Sprintf("%s-dev-%.10s", version, GitCommit)
+	}
+	return version
+}
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -30,7 +60,7 @@ var RootCmd = &cobra.Command{
 	// even if we just display the help. This is to make sure that we check
 	// the repository and give the user early feedback.
 	PreRunE: loadRepo,
-	RunE:    runMigrateCmd,
+	RunE:    runRootCmd,
 
 	SilenceUsage:      true,
 	DisableAutoGenTag: true,
@@ -66,4 +96,11 @@ func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func init() {
+	RootCmd.Flags().SortFlags = false
+
+	RootCmd.Flags().BoolVarP(&rootCmdShowVersion, "version", "v", false,
+		"Show the version of the migration tool. This will not run the tool.")
 }

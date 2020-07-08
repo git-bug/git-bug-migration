@@ -4,9 +4,10 @@ GIT_COMMIT:=$(shell git rev-list -1 HEAD)
 GIT_LAST_TAG:=$(shell git describe --abbrev=0 --tags)
 GIT_EXACT_TAG:=$(shell git name-rev --name-only --tags HEAD)
 
-LDFLAGS:=-X 'main.GitCommit=${GIT_COMMIT}' \
-	-X 'main.GitLastTag=${GIT_LAST_TAG}' \
-	-X 'main.GitExactTag=${GIT_EXACT_TAG}'
+COMMANDS_PATH:=github.com/MichaelMure/git-bug-migration/commands
+LDFLAGS:=-X '${COMMANDS_PATH}.GitCommit=${GIT_COMMIT}' \
+	-X '${COMMANDS_PATH}.GitLastTag=${GIT_LAST_TAG}' \
+	-X '${COMMANDS_PATH}.GitExactTag=${GIT_EXACT_TAG}'
 
 build:
 	go build -ldflags "$(LDFLAGS)" .
