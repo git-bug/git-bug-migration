@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	mg1 "github.com/MichaelMure/git-bug-migration/migration1"
-	mg1b "github.com/MichaelMure/git-bug-migration/migration1/bug"
-	mg1r "github.com/MichaelMure/git-bug-migration/migration1/repository"
+	mg1 "github.com/MichaelMure/git-bug-migration/migration01"
+	mg1b "github.com/MichaelMure/git-bug-migration/migration01/after/bug"
+	mg1r "github.com/MichaelMure/git-bug-migration/migration01/after/repository"
 )
 
 const rootCommandName = "git-bug-migration"
