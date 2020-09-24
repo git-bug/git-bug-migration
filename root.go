@@ -48,9 +48,8 @@ func runRootCmd(env *Env, migrations []Migration) error {
 	for i, migration := range migrations {
 		if i > 0 {
 			env.out.Println()
-			env.out.Println()
 		}
-		env.out.Print("Migration #%d\n", i+1)
+		env.out.Printf("Migration #%d\n", i+1)
 		env.out.Println("Purpose:", migration.Description())
 		env.out.Println()
 

@@ -17,7 +17,7 @@ func (m *Migration2) Description() string {
 }
 
 func (m *Migration2) Run(repoPath string) error {
-	oldRepo, err := beforerepo.NewGitRepo(repoPath, nil)
+	oldRepo, err := beforerepo.NewGitRepo(repoPath, func(beforerepo.ClockedRepo) error { return nil })
 	if err != nil {
 		return err
 	}
