@@ -1,9 +1,11 @@
 package migration12
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,6 +50,13 @@ func TestMigrate12(t *testing.T) {
 
 	oldCredentials, err := mg1b.List(repo1)
 	require.NoError(t, err)
+	require.NoError(t, err)
+	sort.Slice(oldCredentials, func(i, j int) bool {
+		k := bytes.Compare(oldCredentials[i].Salt(), oldCredentials[j].Salt())
+		require.NotEqual(t, 0, k)
+		return k < 0
+	})
+
 	oldJSON, err := json.Marshal(oldCredentials)
 	require.NoError(t, err)
 
@@ -59,6 +68,12 @@ func TestMigrate12(t *testing.T) {
 
 	newCredentials, err := mg2b.List(repo2)
 	require.NoError(t, err)
+	sort.Slice(newCredentials, func(i, j int) bool {
+		k := bytes.Compare(newCredentials[i].Salt(), newCredentials[j].Salt())
+		require.NotEqual(t, 0, k)
+		return k < 0
+	})
+
 	newJSON, err := json.Marshal(newCredentials)
 	require.NoError(t, err)
 	require.Equal(t, oldJSON, newJSON)
