@@ -16,10 +16,10 @@ import (
 const (
 	configKeyPrefix     = "git-bug.auth"
 	configKeyKind       = "kind"
-	configKeyTarget     = "TargetT"
+	configKeyTarget     = "target"
 	configKeyCreateTime = "createtime"
-	configKeySalt       = "SaltT"
-	configKeyPrefixMeta = "MetaT."
+	configKeySalt       = "salt"
+	configKeyPrefixMeta = "meta."
 
 	MetaKeyLogin   = "login"
 	MetaKeyBaseURL = "base-url"
@@ -159,7 +159,7 @@ func makeSalt() []byte {
 func saltFromConfig(configs map[string]string) ([]byte, error) {
 	val, ok := configs[configKeySalt]
 	if !ok {
-		return nil, fmt.Errorf("no credential SaltT found")
+		return nil, fmt.Errorf("no credential salt found")
 	}
 	return base64.StdEncoding.DecodeString(val)
 }

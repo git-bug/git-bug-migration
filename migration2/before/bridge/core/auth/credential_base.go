@@ -8,10 +8,10 @@ import (
 )
 
 type CredentialBase struct {
-	TargetT     string
-	CreateTimeT time.Time
-	SaltT       []byte
-	MetaT       map[string]string
+	TargetT     string            `json:"target"`
+	CreateTimeT time.Time         `json:"create_time"`
+	SaltT       []byte            `json:"salt"`
+	MetaT       map[string]string `json:"meta"`
 }
 
 func newCredentialBase(target string) *CredentialBase {
@@ -61,7 +61,7 @@ func (cb *CredentialBase) Salt() []byte {
 
 func (cb *CredentialBase) validate() error {
 	if cb.TargetT == "" {
-		return fmt.Errorf("missing TargetT")
+		return fmt.Errorf("missing target")
 	}
 	if cb.CreateTimeT.IsZero() || cb.CreateTimeT.Equal(time.Time{}) {
 		return fmt.Errorf("missing creation time")

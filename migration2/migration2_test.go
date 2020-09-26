@@ -28,6 +28,16 @@ func TestMigrate12(t *testing.T) {
 	err = beforeauth.Store(repo1, token)
 	require.NoError(t, err)
 
+	repo2 := afterrepo.NewMockRepoForTest()
+	require.NoError(t, err)
+
+	m := Migration2{}
+	err = m.migrate(repo1, repo2)
+	require.NoError(t, err, "got error when migrating repository with version 2")
+
+	// to avoid the types problem, we compare the json output of those credentials
+	// which also mean we need to ensure a deterministic ordering:
+
 	oldCredentials, err := beforeauth.List(repo1)
 	require.NoError(t, err)
 	sort.Slice(oldCredentials, func(i, j int) bool {
@@ -38,13 +48,6 @@ func TestMigrate12(t *testing.T) {
 
 	oldJSON, err := json.Marshal(oldCredentials)
 	require.NoError(t, err)
-
-	repo2 := afterrepo.NewMockRepoForTest()
-	require.NoError(t, err)
-
-	m := Migration2{}
-	err = m.migrate(repo1, repo2)
-	require.NoError(t, err, "got error when migrating repository with version 2")
 
 	newCredentials, err := afterauth.List(repo2)
 	require.NoError(t, err)
