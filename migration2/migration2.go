@@ -2,6 +2,7 @@ package migration2
 
 import (
 	"errors"
+	"fmt"
 
 	afterauth "github.com/MichaelMure/git-bug-migration/migration2/after/bridge/core/auth"
 	afterentity "github.com/MichaelMure/git-bug-migration/migration2/after/entity"
@@ -37,8 +38,11 @@ func (m *Migration2) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 	}
 
 	for _, cred := range creds {
+		fmt.Printf("%s: ", cred.ID().Human())
+
 		var newCred afterauth.Credential
 		if afterauth.IdExist(newRepo, afterentity.Id(cred.ID().String())) {
+			fmt.Printf("already migrated\n")
 			continue
 		}
 
@@ -82,6 +86,8 @@ func (m *Migration2) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 		if err != nil {
 			return err
 		}
+
+		fmt.Printf("migrated\n")
 	}
 
 	return nil

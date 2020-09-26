@@ -35,10 +35,12 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 			continue
 		}
 
+		fmt.Printf("%s: ", streamedBug.Bug.Id().Human())
+
 		oldBug := streamedBug.Bug
 		newBug, changed, err := m.migrateBug(oldBug)
 		if err != nil {
-			fmt.Printf("Got error when parsing bug: %q", err)
+			fmt.Printf("Got error when parsing bug: %q\n", err)
 		}
 
 		// If the bug has been changed, remove the old bug and commit the new one
@@ -54,7 +56,11 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 				fmt.Printf("Got error when attempting to remove bug: %q\n", err)
 				continue
 			}
+
+			fmt.Printf("migrated\n")
+			continue
 		}
+		fmt.Printf("migration not needed\n")
 	}
 
 	return nil

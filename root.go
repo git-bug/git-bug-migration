@@ -59,6 +59,6 @@ func runRootCmd(env *Env, migrations []Migration) error {
 			os.Exit(1)
 		}
 	}
-	env.out.Println("Done!")
+	env.out.Println("\nDone!")
 	return nil
 }
