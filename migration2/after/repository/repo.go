@@ -22,10 +22,22 @@ type Repo interface {
 	RepoData
 }
 
+// ClockedRepo is a Repo that also has Lamport clocks
+type ClockedRepo interface {
+	Repo
+	RepoClock
+}
+
 // RepoConfig access the configuration of a repository
 type RepoConfig interface {
 	// LocalConfig give access to the repository scoped configuration
 	LocalConfig() Config
+
+	// GlobalConfig give access to the global scoped configuration
+	GlobalConfig() Config
+
+	// AnyConfig give access to a merged local/global configuration
+	AnyConfig() ConfigRead
 }
 
 // RepoKeyring give access to a user-wide storage for secrets
@@ -70,6 +82,7 @@ type RepoData interface {
 	StoreTree(mapping []TreeEntry) (Hash, error)
 
 	// ReadTree will return the list of entries in a Git tree
+	// The given hash could be from either a commit or a tree
 	ReadTree(hash Hash) ([]TreeEntry, error)
 
 	// StoreCommit will store a Git commit with the given Git tree
@@ -103,10 +116,8 @@ type RepoData interface {
 	ListCommits(ref string) ([]Hash, error)
 }
 
-// ClockedRepo is a Repo that also has Lamport clocks
-type ClockedRepo interface {
-	Repo
-
+// RepoClock give access to Lamport clocks
+type RepoClock interface {
 	// GetOrCreateClock return a Lamport clock stored in the Repo.
 	// If the clock doesn't exist, it's created.
 	GetOrCreateClock(name string) (lamport.Clock, error)
@@ -127,7 +138,11 @@ type ClockLoader struct {
 // TestedRepo is an extended ClockedRepo with function for testing only
 type TestedRepo interface {
 	ClockedRepo
+	repoTest
+}
 
+// repoTest give access to test only functions
+type repoTest interface {
 	// AddRemote add a new remote to the repository
 	AddRemote(name string, url string) error
 }

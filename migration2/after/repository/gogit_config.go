@@ -7,89 +7,92 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/format/config"
+	"github.com/go-git/go-git/v5/config"
 )
 
 var _ Config = &goGitConfig{}
 
 type goGitConfig struct {
-	repo *gogit.Repository
+	ConfigRead
+	ConfigWrite
 }
 
-func newGoGitConfig(repo *gogit.Repository) *goGitConfig {
-	return &goGitConfig{repo: repo}
-}
-
-func (ggc *goGitConfig) StoreString(key, value string) error {
-	cfg, err := ggc.repo.Config()
-	if err != nil {
-		return err
+func newGoGitLocalConfig(repo *gogit.Repository) *goGitConfig {
+	return &goGitConfig{
+		ConfigRead:  &goGitConfigReader{getConfig: repo.Config},
+		ConfigWrite: &goGitConfigWriter{repo: repo},
 	}
+}
 
-	split := strings.Split(key, ".")
-
-	switch {
-	case len(split) <= 1:
-		return fmt.Errorf("invalid key")
-	case len(split) == 2:
-		cfg.Raw.Section(split[0]).SetOption(split[1], value)
-	default:
-		section := split[0]
-		subsection := strings.Join(split[1:len(split)-2], ".")
-		option := split[len(split)-1]
-		cfg.Raw.Section(section).Subsection(subsection).SetOption(option, value)
+func newGoGitGlobalConfig(repo *gogit.Repository) *goGitConfig {
+	return &goGitConfig{
+		ConfigRead: &goGitConfigReader{getConfig: func() (*config.Config, error) {
+			return config.LoadConfig(config.GlobalScope)
+		}},
+		ConfigWrite: &configPanicWriter{},
 	}
-
-	return ggc.repo.SetConfig(cfg)
 }
 
-func (ggc *goGitConfig) StoreTimestamp(key string, value time.Time) error {
-	return ggc.StoreString(key, strconv.Itoa(int(value.Unix())))
+var _ ConfigRead = &goGitConfigReader{}
+
+type goGitConfigReader struct {
+	getConfig func() (*config.Config, error)
 }
 
-func (ggc *goGitConfig) StoreBool(key string, value bool) error {
-	return ggc.StoreString(key, strconv.FormatBool(value))
-}
-
-func (ggc *goGitConfig) ReadAll(keyPrefix string) (map[string]string, error) {
-	cfg, err := ggc.repo.Config()
+func (cr *goGitConfigReader) ReadAll(keyPrefix string) (map[string]string, error) {
+	cfg, err := cr.getConfig()
 	if err != nil {
 		return nil, err
 	}
 
 	split := strings.Split(keyPrefix, ".")
-
-	var opts config.Options
+	result := make(map[string]string)
 
 	switch {
-	case len(split) < 1:
-		return nil, fmt.Errorf("invalid key prefix")
+	case keyPrefix == "":
+		for _, section := range cfg.Raw.Sections {
+			for _, option := range section.Options {
+				result[fmt.Sprintf("%s.%s", section.Name, option.Key)] = option.Value
+			}
+			for _, subsection := range section.Subsections {
+				for _, option := range subsection.Options {
+					result[fmt.Sprintf("%s.%s.%s", section.Name, subsection.Name, option.Key)] = option.Value
+				}
+			}
+		}
 	case len(split) == 1:
-		opts = cfg.Raw.Section(split[0]).Options
+		if !cfg.Raw.HasSection(split[0]) {
+			return nil, nil
+		}
+		section := cfg.Raw.Section(split[0])
+		for _, option := range section.Options {
+			result[fmt.Sprintf("%s.%s", section.Name, option.Key)] = option.Value
+		}
+		for _, subsection := range section.Subsections {
+			for _, option := range subsection.Options {
+				result[fmt.Sprintf("%s.%s.%s", section.Name, subsection.Name, option.Key)] = option.Value
+			}
+		}
 	default:
-		section := split[0]
-		subsection := strings.Join(split[1:len(split)-1], ".")
-		opts = cfg.Raw.Section(section).Subsection(subsection).Options
-	}
-
-	if len(opts) == 0 {
-		return nil, fmt.Errorf("invalid section")
-	}
-
-	if keyPrefix[len(keyPrefix)-1:] != "." {
-		keyPrefix += "."
-	}
-
-	result := make(map[string]string, len(opts))
-	for _, opt := range opts {
-		result[keyPrefix+opt.Key] = opt.Value
+		if !cfg.Raw.HasSection(split[0]) {
+			return nil, nil
+		}
+		section := cfg.Raw.Section(split[0])
+		rest := strings.Join(split[1:], ".")
+		for _, subsection := range section.Subsections {
+			if strings.HasPrefix(subsection.Name, rest) {
+				for _, option := range subsection.Options {
+					result[fmt.Sprintf("%s.%s.%s", section.Name, subsection.Name, option.Key)] = option.Value
+				}
+			}
+		}
 	}
 
 	return result, nil
 }
 
-func (ggc *goGitConfig) ReadBool(key string) (bool, error) {
-	val, err := ggc.ReadString(key)
+func (cr *goGitConfigReader) ReadBool(key string) (bool, error) {
+	val, err := cr.ReadString(key)
 	if err != nil {
 		return false, err
 	}
@@ -97,8 +100,8 @@ func (ggc *goGitConfig) ReadBool(key string) (bool, error) {
 	return strconv.ParseBool(val)
 }
 
-func (ggc *goGitConfig) ReadString(key string) (string, error) {
-	cfg, err := ggc.repo.Config()
+func (cr *goGitConfigReader) ReadString(key string) (string, error) {
+	cfg, err := cr.getConfig()
 	if err != nil {
 		return "", err
 	}
@@ -142,16 +145,54 @@ func (ggc *goGitConfig) ReadString(key string) (string, error) {
 	}
 }
 
-func (ggc *goGitConfig) ReadTimestamp(key string) (time.Time, error) {
-	value, err := ggc.ReadString(key)
+func (cr *goGitConfigReader) ReadTimestamp(key string) (time.Time, error) {
+	value, err := cr.ReadString(key)
 	if err != nil {
 		return time.Time{}, err
 	}
 	return ParseTimestamp(value)
 }
 
-func (ggc *goGitConfig) RemoveAll(keyPrefix string) error {
-	cfg, err := ggc.repo.Config()
+var _ ConfigWrite = &goGitConfigWriter{}
+
+// Only works for the local config as go-git only support that
+type goGitConfigWriter struct {
+	repo *gogit.Repository
+}
+
+func (cw *goGitConfigWriter) StoreString(key, value string) error {
+	cfg, err := cw.repo.Config()
+	if err != nil {
+		return err
+	}
+
+	split := strings.Split(key, ".")
+
+	switch {
+	case len(split) <= 1:
+		return fmt.Errorf("invalid key")
+	case len(split) == 2:
+		cfg.Raw.Section(split[0]).SetOption(split[1], value)
+	default:
+		section := split[0]
+		subsection := strings.Join(split[1:len(split)-1], ".")
+		option := split[len(split)-1]
+		cfg.Raw.Section(section).Subsection(subsection).SetOption(option, value)
+	}
+
+	return cw.repo.SetConfig(cfg)
+}
+
+func (cw *goGitConfigWriter) StoreTimestamp(key string, value time.Time) error {
+	return cw.StoreString(key, strconv.Itoa(int(value.Unix())))
+}
+
+func (cw *goGitConfigWriter) StoreBool(key string, value bool) error {
+	return cw.StoreString(key, strconv.FormatBool(value))
+}
+
+func (cw *goGitConfigWriter) RemoveAll(keyPrefix string) error {
+	cfg, err := cw.repo.Config()
 	if err != nil {
 		return err
 	}
@@ -159,28 +200,36 @@ func (ggc *goGitConfig) RemoveAll(keyPrefix string) error {
 	split := strings.Split(keyPrefix, ".")
 
 	switch {
-	case len(split) < 1:
-		return fmt.Errorf("invalid key prefix")
+	case keyPrefix == "":
+		cfg.Raw.Sections = nil
+		// warning: this does not actually remove everything as go-git config hold
+		// some entries in multiple places (cfg.User ...)
 	case len(split) == 1:
-		if len(cfg.Raw.Section(split[0]).Options) > 0 {
+		if cfg.Raw.HasSection(split[0]) {
 			cfg.Raw.RemoveSection(split[0])
 		} else {
 			return fmt.Errorf("invalid key prefix")
 		}
 	default:
-		section := split[0]
+		if !cfg.Raw.HasSection(split[0]) {
+			return fmt.Errorf("invalid key prefix")
+		}
+		section := cfg.Raw.Section(split[0])
 		rest := strings.Join(split[1:], ".")
 
-		if cfg.Raw.Section(section).HasSubsection(rest) {
-			cfg.Raw.RemoveSubsection(section, rest)
-		} else {
-			if cfg.Raw.Section(section).HasOption(rest) {
-				cfg.Raw.Section(section).RemoveOption(rest)
-			} else {
-				return fmt.Errorf("invalid key prefix")
-			}
+		ok := false
+		if section.HasSubsection(rest) {
+			section.RemoveSubsection(rest)
+			ok = true
+		}
+		if section.HasOption(rest) {
+			section.RemoveOption(rest)
+			ok = true
+		}
+		if !ok {
+			return fmt.Errorf("invalid key prefix")
 		}
 	}
 
-	return ggc.repo.SetConfig(cfg)
+	return cw.repo.SetConfig(cfg)
 }

@@ -3,6 +3,7 @@ package auth
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/MichaelMure/git-bug-migration/migration2/after/entity"
@@ -23,66 +24,66 @@ func TestCredential(t *testing.T) {
 
 	// Store + Load
 	err := Store(repo, token)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	token2, err := LoadWithId(repo, token.ID())
-	require.NoError(t, err)
-	require.Equal(t, token.CreateTimeT.Unix(), token2.CreateTime().Unix())
+	assert.NoError(t, err)
+	assert.Equal(t, token.CreateTimeT.Unix(), token2.CreateTime().Unix())
 	token.CreateTimeT = token2.CreateTime()
-	require.Equal(t, token, token2)
+	assert.Equal(t, token, token2)
 
 	prefix := string(token.ID())[:10]
 
 	// LoadWithPrefix
 	token3, err := LoadWithPrefix(repo, prefix)
-	require.NoError(t, err)
-	require.Equal(t, token.CreateTimeT.Unix(), token3.CreateTime().Unix())
+	assert.NoError(t, err)
+	assert.Equal(t, token.CreateTimeT.Unix(), token3.CreateTime().Unix())
 	token.CreateTimeT = token3.CreateTime()
-	require.Equal(t, token, token3)
+	assert.Equal(t, token, token3)
 
 	token4 := storeToken("foo", "gitlab")
 	token5 := storeToken("bar", "github")
 
 	// List + options
 	creds, err := List(repo, WithTarget("github"))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{token, token5})
 
 	creds, err = List(repo, WithTarget("gitlab"))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{token4})
 
 	creds, err = List(repo, WithKind(KindToken))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{token, token4, token5})
 
 	creds, err = List(repo, WithKind(KindLoginPassword))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{})
 
 	// Metadata
 
 	token4.SetMetadata("key", "value")
 	err = Store(repo, token4)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	creds, err = List(repo, WithMeta("key", "value"))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{token4})
 
 	// Exist
 	exist := IdExist(repo, token.ID())
-	require.True(t, exist)
+	assert.True(t, exist)
 
 	exist = PrefixExist(repo, prefix)
-	require.True(t, exist)
+	assert.True(t, exist)
 
 	// Remove
 	err = Remove(repo, token.ID())
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	creds, err = List(repo)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	sameIds(t, creds, []Credential{token4, token5})
 }
 
@@ -97,7 +98,7 @@ func sameIds(t *testing.T, a []Credential, b []Credential) {
 		return result
 	}
 
-	require.ElementsMatch(t, ids(a), ids(b))
+	assert.ElementsMatch(t, ids(a), ids(b))
 }
 
 func testCredentialSerial(t *testing.T, original Credential) Credential {
@@ -105,19 +106,19 @@ func testCredentialSerial(t *testing.T, original Credential) Credential {
 
 	original.SetMetadata("test", "value")
 
-	require.NotEmpty(t, original.ID().String())
-	require.NotEmpty(t, original.Salt())
-	require.NoError(t, Store(repo, original))
+	assert.NotEmpty(t, original.ID().String())
+	assert.NotEmpty(t, original.Salt())
+	assert.NoError(t, Store(repo, original))
 
 	loaded, err := LoadWithId(repo, original.ID())
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
-	require.Equal(t, original.ID(), loaded.ID())
-	require.Equal(t, original.Kind(), loaded.Kind())
-	require.Equal(t, original.Target(), loaded.Target())
-	require.Equal(t, original.CreateTime().Unix(), loaded.CreateTime().Unix())
-	require.Equal(t, original.Salt(), loaded.Salt())
-	require.Equal(t, original.Metadata(), loaded.Metadata())
+	assert.Equal(t, original.ID(), loaded.ID())
+	assert.Equal(t, original.Kind(), loaded.Kind())
+	assert.Equal(t, original.Target(), loaded.Target())
+	assert.Equal(t, original.CreateTime().Unix(), loaded.CreateTime().Unix())
+	assert.Equal(t, original.Salt(), loaded.Salt())
+	assert.Equal(t, original.Metadata(), loaded.Metadata())
 
 	return loaded
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,8 +31,8 @@ func TestRegisterAndErrorAtCleaning(t *testing.T) {
 	require.Len(t, errl, 2)
 
 	// cleaners should execute in the reverse order they have been defined
-	require.Equal(t, "2", errl[0].Error())
-	require.Equal(t, "1", errl[1].Error())
+	assert.Equal(t, "2", errl[0].Error())
+	assert.Equal(t, "1", errl[1].Error())
 }
 
 func TestRegisterAndClean(t *testing.T) {
@@ -48,7 +49,7 @@ func TestRegisterAndClean(t *testing.T) {
 	RegisterCleaner(f2)
 
 	errl := clean()
-	require.Len(t, errl, 0)
+	assert.Len(t, errl, 0)
 }
 
 func TestCancel(t *testing.T) {
@@ -69,5 +70,5 @@ func TestCancel(t *testing.T) {
 	errl := clean()
 	require.Len(t, errl, 1)
 
-	require.Equal(t, "2", errl[0].Error())
+	assert.Equal(t, "2", errl[0].Error())
 }

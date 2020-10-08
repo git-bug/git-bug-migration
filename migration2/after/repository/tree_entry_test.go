@@ -3,7 +3,7 @@ package repository
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTreeEntryFormat(t *testing.T) {
@@ -25,7 +25,7 @@ func TestTreeEntryParse(t *testing.T) {
 
 	for _, line := range lines {
 		_, err := ParseTreeEntry(line)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 	}
 
 }
