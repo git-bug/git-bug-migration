@@ -5,7 +5,7 @@ import (
 
 	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
+	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/util/timestamp"
 )
 
@@ -29,7 +29,7 @@ type CommentTimelineItem struct {
 	id        entity.Id
 	Author    identity.Interface
 	Message   string
-	Files     []git.Hash
+	Files     []repository.Hash
 	CreatedAt timestamp.Timestamp
 	LastEdit  timestamp.Timestamp
 	History   []CommentHistoryStep

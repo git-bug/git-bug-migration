@@ -29,7 +29,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 	m.readIdentities(repo)
 
 	// Iterating through all the bugs in the repo
-	for streamedBug := range afterbug.ReadAllLocalBugs(repo) {
+	for streamedBug := range afterbug.ReadAllLocal(repo) {
 		if streamedBug.Err != nil {
 			fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
 			continue
@@ -38,7 +38,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 		fmt.Printf("%s: ", streamedBug.Bug.Id().Human())
 
 		oldBug := streamedBug.Bug
-		newBug, changed, err := m.migrateBug(oldBug)
+		newBug, changed, err := m.migrateBug(oldBug, repo)
 		if err != nil {
 			fmt.Printf("Got error when parsing bug: %q\n", err)
 		}
@@ -51,7 +51,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 				continue
 			}
 
-			err = afterbug.RemoveLocalBug(repo, oldBug.Id())
+			err = afterbug.RemoveBug(repo, oldBug.Id())
 			if err != nil {
 				fmt.Printf("Got error when attempting to remove bug: %q\n", err)
 				continue
@@ -67,7 +67,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 }
 
 func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) {
-	for streamedIdentity := range afteridentity.ReadAllLocalIdentities(repo) {
+	for streamedIdentity := range afteridentity.ReadAllLocal(repo) {
 		if streamedIdentity.Err != nil {
 			fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
 			continue
@@ -76,10 +76,13 @@ func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) {
 	}
 }
 
-func (m *Migration1) migrateBug(oldBug *afterbug.Bug) (*afterbug.Bug, bool, error) {
+func (m *Migration1) migrateBug(oldBug *afterbug.Bug, repo afterrepo.ClockedRepo) (*afterbug.Bug, bool, error) {
+	if oldBug.Packs[0].FormatVersion != 1 {
+		return nil, false, nil
+	}
+
 	// Making a new bug
 	newBug := afterbug.NewBug()
-	bugChange := false
 
 	// Iterating over each operation in the bug
 	it := afterbug.NewOperationIterator(oldBug)
@@ -90,8 +93,6 @@ func (m *Migration1) migrateBug(oldBug *afterbug.Bug) (*afterbug.Bug, bool, erro
 		// Checking if the author is of the legacy (bare) type
 		switch oldAuthor.(type) {
 		case *afteridentity.Bare:
-			bugChange = true
-
 			// Search existing identities for any traces of this old identity
 			var newAuthor *afteridentity.Identity = nil
 			for _, identity := range m.allIdentities {
@@ -108,6 +109,11 @@ func (m *Migration1) migrateBug(oldBug *afterbug.Bug) (*afterbug.Bug, bool, erro
 					oldAuthor.Login(),
 					oldAuthor.AvatarUrl(),
 				)
+
+				err := newAuthor.Commit(repo)
+				if err != nil {
+					return nil, false, err
+				}
 			}
 
 			// Set the author of the operation to the new identity
@@ -126,5 +132,5 @@ func (m *Migration1) migrateBug(oldBug *afterbug.Bug) (*afterbug.Bug, bool, erro
 		}
 	}
 
-	return newBug, bugChange, nil
+	return newBug, true, nil
 }

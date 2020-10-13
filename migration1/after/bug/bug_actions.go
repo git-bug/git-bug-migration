@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
+	"github.com/pkg/errors"
 )
 
 // Fetch retrieve updates from a remote
 // This does not change the local bugs state
 func Fetch(repo repository.Repo, remote string) (string, error) {
+	// "refs/bugs/*:refs/remotes/<remote>>/bugs/*"
 	remoteRefSpec := fmt.Sprintf(bugsRemoteRefPattern, remote)
 	fetchRefSpec := fmt.Sprintf("%s*:%s*", bugsRefPattern, remoteRefSpec)
 
@@ -21,7 +22,10 @@ func Fetch(repo repository.Repo, remote string) (string, error) {
 
 // Push update a remote with the local changes
 func Push(repo repository.Repo, remote string) (string, error) {
-	return repo.PushRefs(remote, bugsRefPattern+"*")
+	// "refs/bugs/*:refs/bugs/*"
+	refspec := fmt.Sprintf("%s*:%s*", bugsRefPattern, bugsRefPattern)
+
+	return repo.PushRefs(remote, refspec)
 }
 
 // Pull will do a Fetch + MergeAll
@@ -54,6 +58,11 @@ func Pull(repo repository.ClockedRepo, remote string) error {
 func MergeAll(repo repository.ClockedRepo, remote string) <-chan entity.MergeResult {
 	out := make(chan entity.MergeResult)
 
+	// no caching for the merge, we load everything from git even if that means multiple
+	// copy of the same entity in memory. The cache layer will intercept the results to
+	// invalidate entities if necessary.
+	identityResolver := identity.NewSimpleResolver(repo)
+
 	go func() {
 		defer close(out)
 
@@ -74,7 +83,7 @@ func MergeAll(repo repository.ClockedRepo, remote string) <-chan entity.MergeRes
 				continue
 			}
 
-			remoteBug, err := readBug(repo, remoteRef)
+			remoteBug, err := read(repo, identityResolver, remoteRef)
 
 			if err != nil {
 				out <- entity.NewMergeInvalidStatus(id, errors.Wrap(err, "remote bug is not readable").Error())
@@ -108,7 +117,7 @@ func MergeAll(repo repository.ClockedRepo, remote string) <-chan entity.MergeRes
 				continue
 			}
 
-			localBug, err := readBug(repo, localRef)
+			localBug, err := read(repo, identityResolver, localRef)
 
 			if err != nil {
 				out <- entity.NewMergeError(errors.Wrap(err, "local bug is not readable"), id)

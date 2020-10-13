@@ -11,7 +11,6 @@ import (
 	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/util/lamport"
 )
 
@@ -57,11 +56,11 @@ type Bug struct {
 	// Id used as unique identifier
 	id entity.Id
 
-	lastCommit git.Hash
-	rootPack   git.Hash
+	lastCommit repository.Hash
+	rootPack   repository.Hash
 
 	// all the committed operations
-	packs []OperationPack
+	Packs []OperationPack
 
 	// a temporary pack of operations used for convenience to pile up new operations
 	// before a commit
@@ -75,48 +74,32 @@ func NewBug() *Bug {
 	return &Bug{}
 }
 
-// FindLocalBug find an existing Bug matching a prefix
-func FindLocalBug(repo repository.ClockedRepo, prefix string) (*Bug, error) {
-	ids, err := ListLocalIds(repo)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// preallocate but empty
-	matching := make([]entity.Id, 0, 5)
-
-	for _, id := range ids {
-		if id.HasPrefix(prefix) {
-			matching = append(matching, id)
-		}
-	}
-
-	if len(matching) == 0 {
-		return nil, errors.New("no matching bug found.")
-	}
-
-	if len(matching) > 1 {
-		return nil, NewErrMultipleMatchBug(matching)
-	}
-
-	return ReadLocalBug(repo, matching[0])
-}
-
-// ReadLocalBug will read a local bug from its hash
-func ReadLocalBug(repo repository.ClockedRepo, id entity.Id) (*Bug, error) {
+// ReadLocal will read a local bug from its hash
+func ReadLocal(repo repository.ClockedRepo, id entity.Id) (*Bug, error) {
 	ref := bugsRefPattern + id.String()
-	return readBug(repo, ref)
+	return read(repo, identity.NewSimpleResolver(repo), ref)
 }
 
-// ReadRemoteBug will read a remote bug from its hash
-func ReadRemoteBug(repo repository.ClockedRepo, remote string, id string) (*Bug, error) {
-	ref := fmt.Sprintf(bugsRemoteRefPattern, remote) + id
-	return readBug(repo, ref)
+// ReadLocalWithResolver will read a local bug from its hash
+func ReadLocalWithResolver(repo repository.ClockedRepo, identityResolver identity.Resolver, id entity.Id) (*Bug, error) {
+	ref := bugsRefPattern + id.String()
+	return read(repo, identityResolver, ref)
 }
 
-// readBug will read and parse a Bug from git
-func readBug(repo repository.ClockedRepo, ref string) (*Bug, error) {
+// ReadRemote will read a remote bug from its hash
+func ReadRemote(repo repository.ClockedRepo, remote string, id entity.Id) (*Bug, error) {
+	ref := fmt.Sprintf(bugsRemoteRefPattern, remote) + id.String()
+	return read(repo, identity.NewSimpleResolver(repo), ref)
+}
+
+// ReadRemoteWithResolver will read a remote bug from its hash
+func ReadRemoteWithResolver(repo repository.ClockedRepo, identityResolver identity.Resolver, remote string, id entity.Id) (*Bug, error) {
+	ref := fmt.Sprintf(bugsRemoteRefPattern, remote) + id.String()
+	return read(repo, identityResolver, ref)
+}
+
+// read will read and parse a Bug from git
+func read(repo repository.ClockedRepo, identityResolver identity.Resolver, ref string) (*Bug, error) {
 	refSplit := strings.Split(ref, "/")
 	id := entity.Id(refSplit[len(refSplit)-1])
 
@@ -230,12 +213,11 @@ func readBug(repo repository.ClockedRepo, ref string) (*Bug, error) {
 		// tag the pack with the commit hash
 		opp.commitHash = hash
 
-		bug.packs = append(bug.packs, *opp)
+		bug.Packs = append(bug.Packs, *opp)
 	}
 
 	// Make sure that the identities are properly loaded
-	resolver := identity.NewSimpleResolver(repo)
-	err = bug.EnsureIdentities(resolver)
+	err = bug.EnsureIdentities(identityResolver)
 	if err != nil {
 		return nil, err
 	}
@@ -243,9 +225,54 @@ func readBug(repo repository.ClockedRepo, ref string) (*Bug, error) {
 	return &bug, nil
 }
 
-func RemoveLocalBug(repo repository.ClockedRepo, id entity.Id) error {
-	ref := bugsRefPattern + id.String()
-	return repo.RemoveRef(ref)
+// RemoveBug will remove a local bug from its entity.Id
+func RemoveBug(repo repository.ClockedRepo, id entity.Id) error {
+	var fullMatches []string
+
+	refs, err := repo.ListRefs(bugsRefPattern + id.String())
+	if err != nil {
+		return err
+	}
+	if len(refs) > 1 {
+		return NewErrMultipleMatchBug(refsToIds(refs))
+	}
+	if len(refs) == 1 {
+		// we have the bug locally
+		fullMatches = append(fullMatches, refs[0])
+	}
+
+	remotes, err := repo.GetRemotes()
+	if err != nil {
+		return err
+	}
+
+	for remote := range remotes {
+		remotePrefix := fmt.Sprintf(bugsRemoteRefPattern+id.String(), remote)
+		remoteRefs, err := repo.ListRefs(remotePrefix)
+		if err != nil {
+			return err
+		}
+		if len(remoteRefs) > 1 {
+			return NewErrMultipleMatchBug(refsToIds(refs))
+		}
+		if len(remoteRefs) == 1 {
+			// found the bug in a remote
+			fullMatches = append(fullMatches, remoteRefs[0])
+		}
+	}
+
+	if len(fullMatches) == 0 {
+		return ErrBugNotExist
+	}
+
+	for _, ref := range fullMatches {
+		err = repo.RemoveRef(ref)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type StreamedBug struct {
@@ -253,19 +280,30 @@ type StreamedBug struct {
 	Err error
 }
 
-// ReadAllLocalBugs read and parse all local bugs
-func ReadAllLocalBugs(repo repository.ClockedRepo) <-chan StreamedBug {
-	return readAllBugs(repo, bugsRefPattern)
+// ReadAllLocal read and parse all local bugs
+func ReadAllLocal(repo repository.ClockedRepo) <-chan StreamedBug {
+	return readAll(repo, identity.NewSimpleResolver(repo), bugsRefPattern)
 }
 
-// ReadAllRemoteBugs read and parse all remote bugs for a given remote
-func ReadAllRemoteBugs(repo repository.ClockedRepo, remote string) <-chan StreamedBug {
+// ReadAllLocalWithResolver read and parse all local bugs
+func ReadAllLocalWithResolver(repo repository.ClockedRepo, identityResolver identity.Resolver) <-chan StreamedBug {
+	return readAll(repo, identityResolver, bugsRefPattern)
+}
+
+// ReadAllRemote read and parse all remote bugs for a given remote
+func ReadAllRemote(repo repository.ClockedRepo, remote string) <-chan StreamedBug {
 	refPrefix := fmt.Sprintf(bugsRemoteRefPattern, remote)
-	return readAllBugs(repo, refPrefix)
+	return readAll(repo, identity.NewSimpleResolver(repo), refPrefix)
+}
+
+// ReadAllRemoteWithResolver read and parse all remote bugs for a given remote
+func ReadAllRemoteWithResolver(repo repository.ClockedRepo, identityResolver identity.Resolver, remote string) <-chan StreamedBug {
+	refPrefix := fmt.Sprintf(bugsRemoteRefPattern, remote)
+	return readAll(repo, identityResolver, refPrefix)
 }
 
 // Read and parse all available bug with a given ref prefix
-func readAllBugs(repo repository.ClockedRepo, refPrefix string) <-chan StreamedBug {
+func readAll(repo repository.ClockedRepo, identityResolver identity.Resolver, refPrefix string) <-chan StreamedBug {
 	out := make(chan StreamedBug)
 
 	go func() {
@@ -278,7 +316,7 @@ func readAllBugs(repo repository.ClockedRepo, refPrefix string) <-chan StreamedB
 		}
 
 		for _, ref := range refs {
-			b, err := readBug(repo, ref)
+			b, err := read(repo, identityResolver, ref)
 
 			if err != nil {
 				out <- StreamedBug{Err: err}
@@ -306,22 +344,26 @@ func refsToIds(refs []string) []entity.Id {
 	ids := make([]entity.Id, len(refs))
 
 	for i, ref := range refs {
-		split := strings.Split(ref, "/")
-		ids[i] = entity.Id(split[len(split)-1])
+		ids[i] = refToId(ref)
 	}
 
 	return ids
 }
 
+func refToId(ref string) entity.Id {
+	split := strings.Split(ref, "/")
+	return entity.Id(split[len(split)-1])
+}
+
 // Validate check if the Bug data is valid
 func (bug *Bug) Validate() error {
 	// non-empty
-	if len(bug.packs) == 0 && bug.staging.IsEmpty() {
+	if len(bug.Packs) == 0 && bug.staging.IsEmpty() {
 		return fmt.Errorf("bug has no operations")
 	}
 
 	// check if each pack and operations are valid
-	for _, pack := range bug.packs {
+	for _, pack := range bug.Packs {
 		if err := pack.Validate(); err != nil {
 			return err
 		}
@@ -341,7 +383,7 @@ func (bug *Bug) Validate() error {
 	}
 
 	// The bug Id should be the hash of the first commit
-	if len(bug.packs) > 0 && string(bug.packs[0].commitHash) != bug.id.String() {
+	if len(bug.Packs) > 0 && string(bug.Packs[0].commitHash) != bug.id.String() {
 		return fmt.Errorf("bug id should be the first commit hash")
 	}
 
@@ -372,7 +414,7 @@ func (bug *Bug) Append(op Operation) {
 	bug.staging.Append(op)
 }
 
-// Commit write the staging area in Git and move the operations to the packs
+// Commit write the staging area in Git and move the operations to the Packs
 func (bug *Bug) Commit(repo repository.ClockedRepo) error {
 
 	if !bug.NeedCommit() {
@@ -494,7 +536,7 @@ func (bug *Bug) Commit(repo repository.ClockedRepo) error {
 	}
 
 	bug.staging.commitHash = hash
-	bug.packs = append(bug.packs, bug.staging)
+	bug.Packs = append(bug.Packs, bug.staging)
 	bug.staging = OperationPack{}
 
 	return nil
@@ -514,7 +556,7 @@ func (bug *Bug) NeedCommit() bool {
 func makeMediaTree(pack OperationPack) []repository.TreeEntry {
 	var tree []repository.TreeEntry
 	counter := 0
-	added := make(map[git.Hash]interface{})
+	added := make(map[repository.Hash]interface{})
 
 	for _, ops := range pack.Operations {
 		for _, file := range ops.GetFiles() {
@@ -564,10 +606,10 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 	}
 
 	ancestorIndex := 0
-	newPacks := make([]OperationPack, 0, len(bug.packs))
+	newPacks := make([]OperationPack, 0, len(bug.Packs))
 
 	// Find the root of the rebase
-	for i, pack := range bug.packs {
+	for i, pack := range bug.Packs {
 		newPacks = append(newPacks, pack)
 
 		if pack.commitHash == ancestor {
@@ -576,23 +618,23 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 		}
 	}
 
-	if len(otherBug.packs) == ancestorIndex+1 {
+	if len(otherBug.Packs) == ancestorIndex+1 {
 		// Nothing to rebase, return early
 		return false, nil
 	}
 
-	// get other bug's extra packs
-	for i := ancestorIndex + 1; i < len(otherBug.packs); i++ {
+	// get other bug's extra Packs
+	for i := ancestorIndex + 1; i < len(otherBug.Packs); i++ {
 		// clone is probably not necessary
-		newPack := otherBug.packs[i].Clone()
+		newPack := otherBug.Packs[i].Clone()
 
 		newPacks = append(newPacks, newPack)
 		bug.lastCommit = newPack.commitHash
 	}
 
-	// rebase our extra packs
-	for i := ancestorIndex + 1; i < len(bug.packs); i++ {
-		pack := bug.packs[i]
+	// rebase our extra Packs
+	for i := ancestorIndex + 1; i < len(bug.Packs); i++ {
+		pack := bug.Packs[i]
 
 		// get the referenced git tree
 		treeHash, err := repo.GetTreeHash(pack.commitHash)
@@ -617,7 +659,7 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 		bug.lastCommit = hash
 	}
 
-	bug.packs = newPacks
+	bug.Packs = newPacks
 
 	// Update the git ref
 	err = repo.UpdateRef(bugsRefPattern+bug.id.String(), bug.lastCommit)
@@ -651,7 +693,7 @@ func (bug *Bug) EditLamportTime() lamport.Time {
 // Lookup for the very first operation of the bug.
 // For a valid Bug, this operation should be a CreateOp
 func (bug *Bug) FirstOp() Operation {
-	for _, pack := range bug.packs {
+	for _, pack := range bug.Packs {
 		for _, op := range pack.Operations {
 			return op
 		}
@@ -671,11 +713,11 @@ func (bug *Bug) LastOp() Operation {
 		return bug.staging.Operations[len(bug.staging.Operations)-1]
 	}
 
-	if len(bug.packs) == 0 {
+	if len(bug.Packs) == 0 {
 		return nil
 	}
 
-	lastPack := bug.packs[len(bug.packs)-1]
+	lastPack := bug.Packs[len(bug.Packs)-1]
 
 	if len(lastPack.Operations) == 0 {
 		return nil
