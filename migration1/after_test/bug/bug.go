@@ -8,10 +8,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/lamport"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/entity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/identity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/repository"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/util/lamport"
 )
 
 const bugsRefPattern = "refs/bugs/"
@@ -60,10 +60,10 @@ type Bug struct {
 	rootPack   repository.Hash
 
 	// all the committed operations
-	Packs []OperationPack
+	packs []OperationPack
 
 	// a temporary pack of operations used for convenience to pile up new operations
-	// before_test a commit
+	// before a commit
 	staging OperationPack
 }
 
@@ -213,7 +213,7 @@ func read(repo repository.ClockedRepo, identityResolver identity.Resolver, ref s
 		// tag the pack with the commit hash
 		opp.commitHash = hash
 
-		bug.Packs = append(bug.Packs, *opp)
+		bug.packs = append(bug.packs, *opp)
 	}
 
 	// Make sure that the identities are properly loaded
@@ -358,12 +358,12 @@ func refToId(ref string) entity.Id {
 // Validate check if the Bug data is valid
 func (bug *Bug) Validate() error {
 	// non-empty
-	if len(bug.Packs) == 0 && bug.staging.IsEmpty() {
+	if len(bug.packs) == 0 && bug.staging.IsEmpty() {
 		return fmt.Errorf("bug has no operations")
 	}
 
 	// check if each pack and operations are valid
-	for _, pack := range bug.Packs {
+	for _, pack := range bug.packs {
 		if err := pack.Validate(); err != nil {
 			return err
 		}
@@ -383,7 +383,7 @@ func (bug *Bug) Validate() error {
 	}
 
 	// The bug Id should be the hash of the first commit
-	if len(bug.Packs) > 0 && string(bug.Packs[0].commitHash) != bug.id.String() {
+	if len(bug.packs) > 0 && string(bug.packs[0].commitHash) != bug.id.String() {
 		return fmt.Errorf("bug id should be the first commit hash")
 	}
 
@@ -414,7 +414,7 @@ func (bug *Bug) Append(op Operation) {
 	bug.staging.Append(op)
 }
 
-// Commit write the staging area in Git and move the operations to the Packs
+// Commit write the staging area in Git and move the operations to the packs
 func (bug *Bug) Commit(repo repository.ClockedRepo) error {
 
 	if !bug.NeedCommit() {
@@ -536,7 +536,7 @@ func (bug *Bug) Commit(repo repository.ClockedRepo) error {
 	}
 
 	bug.staging.commitHash = hash
-	bug.Packs = append(bug.Packs, bug.staging)
+	bug.packs = append(bug.packs, bug.staging)
 	bug.staging = OperationPack{}
 
 	return nil
@@ -606,10 +606,10 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 	}
 
 	ancestorIndex := 0
-	newPacks := make([]OperationPack, 0, len(bug.Packs))
+	newPacks := make([]OperationPack, 0, len(bug.packs))
 
 	// Find the root of the rebase
-	for i, pack := range bug.Packs {
+	for i, pack := range bug.packs {
 		newPacks = append(newPacks, pack)
 
 		if pack.commitHash == ancestor {
@@ -618,23 +618,23 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 		}
 	}
 
-	if len(otherBug.Packs) == ancestorIndex+1 {
+	if len(otherBug.packs) == ancestorIndex+1 {
 		// Nothing to rebase, return early
 		return false, nil
 	}
 
-	// get other bug's extra Packs
-	for i := ancestorIndex + 1; i < len(otherBug.Packs); i++ {
+	// get other bug's extra packs
+	for i := ancestorIndex + 1; i < len(otherBug.packs); i++ {
 		// clone is probably not necessary
-		newPack := otherBug.Packs[i].Clone()
+		newPack := otherBug.packs[i].Clone()
 
 		newPacks = append(newPacks, newPack)
 		bug.lastCommit = newPack.commitHash
 	}
 
-	// rebase our extra Packs
-	for i := ancestorIndex + 1; i < len(bug.Packs); i++ {
-		pack := bug.Packs[i]
+	// rebase our extra packs
+	for i := ancestorIndex + 1; i < len(bug.packs); i++ {
+		pack := bug.packs[i]
 
 		// get the referenced git tree
 		treeHash, err := repo.GetTreeHash(pack.commitHash)
@@ -659,7 +659,7 @@ func (bug *Bug) Merge(repo repository.Repo, other Interface) (bool, error) {
 		bug.lastCommit = hash
 	}
 
-	bug.Packs = newPacks
+	bug.packs = newPacks
 
 	// Update the git ref
 	err = repo.UpdateRef(bugsRefPattern+bug.id.String(), bug.lastCommit)
@@ -693,7 +693,7 @@ func (bug *Bug) EditLamportTime() lamport.Time {
 // Lookup for the very first operation of the bug.
 // For a valid Bug, this operation should be a CreateOp
 func (bug *Bug) FirstOp() Operation {
-	for _, pack := range bug.Packs {
+	for _, pack := range bug.packs {
 		for _, op := range pack.Operations {
 			return op
 		}
@@ -713,11 +713,11 @@ func (bug *Bug) LastOp() Operation {
 		return bug.staging.Operations[len(bug.staging.Operations)-1]
 	}
 
-	if len(bug.Packs) == 0 {
+	if len(bug.packs) == 0 {
 		return nil
 	}
 
-	lastPack := bug.Packs[len(bug.Packs)-1]
+	lastPack := bug.packs[len(bug.packs)-1]
 
 	if len(lastPack.Operations) == 0 {
 		return nil

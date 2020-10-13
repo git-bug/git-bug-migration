@@ -8,9 +8,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/entity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/identity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/repository"
 )
 
 // OperationType is an operation type identifier
@@ -50,8 +50,7 @@ type Operation interface {
 	AllMetadata() map[string]string
 	// GetAuthor return the author identity
 	GetAuthor() identity.Interface
-	// SetAuthor sets the author identity
-	SetAuthor(identity.Interface)
+
 	// sign-post method for gqlgen
 	IsOperation()
 }
@@ -69,7 +68,7 @@ func idOperation(op Operation) entity.Id {
 		panic("op's id not set")
 	}
 	if base.id == entity.UnsetId {
-		// This means we are trying to get the op's Id *before_test* it has been stored, for instance when
+		// This means we are trying to get the op's Id *before* it has been stored, for instance when
 		// adding multiple ops in one go in an OperationPack.
 		// As the Id is computed based on the actual bytes written on the disk, we are going to predict
 		// those and then get the Id. This is safe as it will be the exact same code writing on disk later.
@@ -217,9 +216,4 @@ func (op *OpBase) AllMetadata() map[string]string {
 // GetAuthor return author identity
 func (op *OpBase) GetAuthor() identity.Interface {
 	return op.Author
-}
-
-// SetAuthor return author identity
-func (op *OpBase) SetAuthor(identity identity.Interface) {
-	op.Author = identity
 }

@@ -87,7 +87,7 @@ func (i *Bare) Id() entity.Id {
 		panic("identity's id not set")
 	}
 	if i.id == entity.UnsetId {
-		// This means we are trying to get the identity identifier *before* it has been stored
+		// This means we are trying to get the identity identifier *before_test* it has been stored
 		// As the Id is computed based on the actual bytes written on the disk, we are going to predict
 		// those and then get the Id. This is safe as it will be the exact same code writing on disk later.
 

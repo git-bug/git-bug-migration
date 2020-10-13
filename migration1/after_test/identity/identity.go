@@ -10,10 +10,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/lamport"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/timestamp"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/entity"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/repository"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/util/lamport"
+	"github.com/MichaelMure/git-bug-migration/migration1/after_test/util/timestamp"
 )
 
 const identityRefPattern = "refs/identities/"
@@ -363,9 +363,9 @@ func (i *Identity) NeedCommit() bool {
 //   Lamport time
 //
 // However, this approach leave the possibility, in the case of a compromised crypto keys,
-// of forging a new version with a bogus Lamport time to be inserted before_test a legit version,
+// of forging a new version with a bogus Lamport time to be inserted before a legit version,
 // invalidating the correct version and hijacking the Identity. There would only be a short
-// period of time where this would be possible (before_test the network converge) but I'm not
+// period of time where this would be possible (before the network converge) but I'm not
 // confident enough to implement that. I choose the strict fast-forward only approach,
 // despite it's potential problem with two different version as mentioned above.
 func (i *Identity) Merge(repo repository.Repo, other *Identity) (bool, error) {
@@ -441,7 +441,7 @@ func (i *Identity) lastVersion() *Version {
 
 // Id return the Identity identifier
 func (i *Identity) Id() entity.Id {
-	if i.id == "" {
+	if i.id == "" || i.id == entity.UnsetId {
 		// simply panic as it would be a coding error
 		// (using an id of an identity not stored yet)
 		panic("no id yet")
