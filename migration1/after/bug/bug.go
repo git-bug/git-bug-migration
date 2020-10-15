@@ -207,7 +207,7 @@ func read(repo repository.ClockedRepo, identityResolver identity.Resolver, ref s
 		err = json.Unmarshal(data, &opp)
 
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode OperationPack json")
+			return nil, err
 		}
 
 		// tag the pack with the commit hash

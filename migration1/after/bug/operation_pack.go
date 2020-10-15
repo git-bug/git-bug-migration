@@ -12,6 +12,8 @@ import (
 const oldFormatVersion = 1
 const newFormatVersion = 2
 
+var ErrInvalidFormatVersion = errors.New("unknown format version")
+
 // OperationPack represent an ordered set of operation to apply
 // to a Bug. These operations are stored in a single Git commit.
 //
@@ -47,7 +49,7 @@ func (opp *OperationPack) UnmarshalJSON(data []byte) error {
 	}
 
 	if aux.Version != oldFormatVersion {
-		return fmt.Errorf("unknown format version %v", aux.Version)
+		return ErrInvalidFormatVersion
 	}
 
 	opp.FormatVersion = aux.Version

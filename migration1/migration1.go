@@ -31,7 +31,11 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 	// Iterating through all the bugs in the repo
 	for streamedBug := range afterbug.ReadAllLocal(repo) {
 		if streamedBug.Err != nil {
-			fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
+			if streamedBug.Err != afterbug.ErrInvalidFormatVersion {
+				fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
+			} else {
+				fmt.Printf("skipping bug, already updated")
+			}
 			continue
 		}
 

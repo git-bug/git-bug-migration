@@ -71,7 +71,6 @@ func TestMigrate01(t *testing.T) {
 
 	bugs1 := aftertestbug.ReadAllLocal(repo2)
 	bug1 := (<-bugs1).Bug
-	fmt.Printf("%+v", bug1)
 	operations := aftertestbug.NewOperationIterator(bug1)
 	require.Equal(t, true, operations.Next(), "unable to get first operation")
 

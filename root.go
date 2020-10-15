@@ -58,6 +58,7 @@ func runRootCmd(env *Env, migrations []Migration) error {
 			env.err.Printf("Error applying migration: %v\n", err)
 			os.Exit(1)
 		}
+		env.out.Println()
 	}
 	env.out.Println("\nDone!")
 	return nil
