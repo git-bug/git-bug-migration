@@ -6,7 +6,7 @@ import (
 
 	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
+	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/util/text"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/util/timestamp"
 )
@@ -18,7 +18,7 @@ type AddCommentOperation struct {
 	OpBase
 	Message string `json:"message"`
 	// TODO: change for a map[string]util.hash to store the filename ?
-	Files []git.Hash `json:"files"`
+	Files []repository.Hash `json:"files"`
 }
 
 // Sign-post method for gqlgen
@@ -53,7 +53,7 @@ func (op *AddCommentOperation) Apply(snapshot *Snapshot) {
 	snapshot.Timeline = append(snapshot.Timeline, item)
 }
 
-func (op *AddCommentOperation) GetFiles() []git.Hash {
+func (op *AddCommentOperation) GetFiles() []repository.Hash {
 	return op.Files
 }
 
@@ -69,7 +69,7 @@ func (op *AddCommentOperation) Validate() error {
 	return nil
 }
 
-// UnmarshalJSON is a two step JSON unmarshaling
+// UnmarshalJSON is a two step JSON unmarshalling
 // This workaround is necessary to avoid the inner OpBase.MarshalJSON
 // overriding the outer op's MarshalJSON
 func (op *AddCommentOperation) UnmarshalJSON(data []byte) error {
@@ -82,8 +82,8 @@ func (op *AddCommentOperation) UnmarshalJSON(data []byte) error {
 	}
 
 	aux := struct {
-		Message string     `json:"message"`
-		Files   []git.Hash `json:"files"`
+		Message string            `json:"message"`
+		Files   []repository.Hash `json:"files"`
 	}{}
 
 	err = json.Unmarshal(data, &aux)
@@ -101,7 +101,7 @@ func (op *AddCommentOperation) UnmarshalJSON(data []byte) error {
 // Sign post method for gqlgen
 func (op *AddCommentOperation) IsAuthored() {}
 
-func NewAddCommentOp(author identity.Interface, unixTime int64, message string, files []git.Hash) *AddCommentOperation {
+func NewAddCommentOp(author identity.Interface, unixTime int64, message string, files []repository.Hash) *AddCommentOperation {
 	return &AddCommentOperation{
 		OpBase:  newOpBase(AddCommentOp, author, unixTime),
 		Message: message,
@@ -122,7 +122,7 @@ func AddComment(b Interface, author identity.Interface, unixTime int64, message 
 	return AddCommentWithFiles(b, author, unixTime, message, nil)
 }
 
-func AddCommentWithFiles(b Interface, author identity.Interface, unixTime int64, message string, files []git.Hash) (*AddCommentOperation, error) {
+func AddCommentWithFiles(b Interface, author identity.Interface, unixTime int64, message string, files []repository.Hash) (*AddCommentOperation, error) {
 	addCommentOp := NewAddCommentOp(author, unixTime, message, files)
 	if err := addCommentOp.Validate(); err != nil {
 		return nil, err

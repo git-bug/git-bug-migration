@@ -50,33 +50,33 @@ func (m *Migration2) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 		case *beforeauth.Login:
 			newCred = &afterauth.Login{
 				Login: cred.Login,
-				CredentialBase: afterauth.NewCredentialBase(
+				CredentialBase: &afterauth.CredentialBase{
 					cred.Target(),
 					cred.CreateTime(),
 					cred.Salt(),
 					cred.Metadata(),
-				),
+				},
 			}
 		case *beforeauth.LoginPassword:
 			newCred = &afterauth.LoginPassword{
 				Login:    cred.Login,
 				Password: cred.Password,
-				CredentialBase: afterauth.NewCredentialBase(
+				CredentialBase: &afterauth.CredentialBase{
 					cred.Target(),
 					cred.CreateTime(),
 					cred.Salt(),
 					cred.Metadata(),
-				),
+				},
 			}
 		case *beforeauth.Token:
 			newCred = &afterauth.Token{
 				Value: cred.Value,
-				CredentialBase: afterauth.NewCredentialBase(
+				CredentialBase: &afterauth.CredentialBase{
 					cred.Target(),
 					cred.CreateTime(),
 					cred.Salt(),
 					cred.Metadata(),
-				),
+				},
 			}
 		default:
 			return errors.New("unknown credential encountered")

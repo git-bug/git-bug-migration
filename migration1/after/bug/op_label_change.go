@@ -218,7 +218,7 @@ func ChangeLabels(b Interface, author identity.Interface, unixTime int64, add, r
 // The difference with ChangeLabels is that no checks of deduplications are done. You are entirely
 // responsible of what you are doing. In the general case, you want to use ChangeLabels instead.
 // The intended use of this function is to allow importers to create legal but unexpected label changes,
-// like removing a label with no information of when it was added before.
+// like removing a label with no information of when it was added before_test.
 func ForceChangeLabels(b Interface, author identity.Interface, unixTime int64, add, remove []string) (*LabelChangeOperation, error) {
 	added := make([]Label, len(add))
 	for i, str := range add {

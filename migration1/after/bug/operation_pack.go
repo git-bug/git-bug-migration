@@ -7,10 +7,12 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
 )
 
-const formatVersion = 1
+const oldFormatVersion = 1
+const newFormatVersion = 2
+
+var ErrInvalidFormatVersion = errors.New("unknown format version")
 
 // OperationPack represent an ordered set of operation to apply
 // to a Bug. These operations are stored in a single Git commit.
@@ -22,7 +24,8 @@ type OperationPack struct {
 	Operations []Operation
 
 	// Private field so not serialized
-	commitHash git.Hash
+	commitHash    repository.Hash
+	FormatVersion uint
 }
 
 func (opp *OperationPack) MarshalJSON() ([]byte, error) {
@@ -30,7 +33,7 @@ func (opp *OperationPack) MarshalJSON() ([]byte, error) {
 		Version    uint        `json:"version"`
 		Operations []Operation `json:"ops"`
 	}{
-		Version:    formatVersion,
+		Version:    newFormatVersion,
 		Operations: opp.Operations,
 	})
 }
@@ -45,9 +48,11 @@ func (opp *OperationPack) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if aux.Version != formatVersion {
-		return fmt.Errorf("unknown format version %v", aux.Version)
+	if aux.Version != oldFormatVersion {
+		return ErrInvalidFormatVersion
 	}
+
+	opp.FormatVersion = aux.Version
 
 	for _, raw := range aux.Operations {
 		var t struct {
@@ -136,7 +141,7 @@ func (opp *OperationPack) Validate() error {
 
 // Write will serialize and store the OperationPack as a git blob and return
 // its hash
-func (opp *OperationPack) Write(repo repository.ClockedRepo) (git.Hash, error) {
+func (opp *OperationPack) Write(repo repository.ClockedRepo) (repository.Hash, error) {
 	// make sure we don't write invalid data
 	err := opp.Validate()
 	if err != nil {
@@ -144,10 +149,11 @@ func (opp *OperationPack) Write(repo repository.ClockedRepo) (git.Hash, error) {
 	}
 
 	// First, make sure that all the identities are properly Commit as well
+	// TODO: this might be downgraded to "make sure it exist in git" but then, what make
+	// sure no data is lost on identities ?
 	for _, op := range opp.Operations {
-		err := op.base().Author.CommitAsNeeded(repo)
-		if err != nil {
-			return "", err
+		if op.base().Author.NeedCommit() {
+			return "", fmt.Errorf("identity need commmit")
 		}
 	}
 

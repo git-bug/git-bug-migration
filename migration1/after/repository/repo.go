@@ -2,30 +2,48 @@
 package repository
 
 import (
-	"bytes"
 	"errors"
-	"strings"
 
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/util/lamport"
 )
 
 var (
-	ErrNoConfigEntry       = errors.New("no config entry for the given key")
-	ErrMultipleConfigEntry = errors.New("multiple config entry for the given key")
 	// ErrNotARepo is the error returned when the git repo root wan't be found
 	ErrNotARepo = errors.New("not a git repository")
 	// ErrClockNotExist is the error returned when a clock can't be found
 	ErrClockNotExist = errors.New("clock doesn't exist")
 )
 
+// Repo represents a source code repository.
+type Repo interface {
+	RepoConfig
+	RepoKeyring
+	RepoCommon
+	RepoData
+}
+
+// ClockedRepo is a Repo that also has Lamport clocks
+type ClockedRepo interface {
+	Repo
+	RepoClock
+}
+
 // RepoConfig access the configuration of a repository
 type RepoConfig interface {
 	// LocalConfig give access to the repository scoped configuration
 	LocalConfig() Config
 
-	// GlobalConfig give access to the git global configuration
+	// GlobalConfig give access to the global scoped configuration
 	GlobalConfig() Config
+
+	// AnyConfig give access to a merged local/global configuration
+	AnyConfig() ConfigRead
+}
+
+// RepoKeyring give access to a user-wide storage for secrets
+type RepoKeyring interface {
+	// Keyring give access to a user-wide storage for secrets
+	Keyring() Keyring
 }
 
 // RepoCommon represent the common function the we want all the repo to implement
@@ -46,11 +64,8 @@ type RepoCommon interface {
 	GetRemotes() (map[string]string, error)
 }
 
-// Repo represents a source code repository.
-type Repo interface {
-	RepoConfig
-	RepoCommon
-
+// RepoData give access to the git data storage
+type RepoData interface {
 	// FetchRefs fetch git refs from a remote
 	FetchRefs(remote string, refSpec string) (string, error)
 
@@ -58,37 +73,38 @@ type Repo interface {
 	PushRefs(remote string, refSpec string) (string, error)
 
 	// StoreData will store arbitrary data and return the corresponding hash
-	StoreData(data []byte) (git.Hash, error)
+	StoreData(data []byte) (Hash, error)
 
 	// ReadData will attempt to read arbitrary data from the given hash
-	ReadData(hash git.Hash) ([]byte, error)
+	ReadData(hash Hash) ([]byte, error)
 
 	// StoreTree will store a mapping key-->Hash as a Git tree
-	StoreTree(mapping []TreeEntry) (git.Hash, error)
+	StoreTree(mapping []TreeEntry) (Hash, error)
 
 	// ReadTree will return the list of entries in a Git tree
-	ReadTree(hash git.Hash) ([]TreeEntry, error)
+	// The given hash could be from either a commit or a tree
+	ReadTree(hash Hash) ([]TreeEntry, error)
 
 	// StoreCommit will store a Git commit with the given Git tree
-	StoreCommit(treeHash git.Hash) (git.Hash, error)
+	StoreCommit(treeHash Hash) (Hash, error)
 
 	// StoreCommit will store a Git commit with the given Git tree
-	StoreCommitWithParent(treeHash git.Hash, parent git.Hash) (git.Hash, error)
+	StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, error)
 
 	// GetTreeHash return the git tree hash referenced in a commit
-	GetTreeHash(commit git.Hash) (git.Hash, error)
+	GetTreeHash(commit Hash) (Hash, error)
 
 	// FindCommonAncestor will return the last common ancestor of two chain of commit
-	FindCommonAncestor(hash1 git.Hash, hash2 git.Hash) (git.Hash, error)
+	FindCommonAncestor(commit1 Hash, commit2 Hash) (Hash, error)
 
 	// UpdateRef will create or update a Git reference
-	UpdateRef(ref string, hash git.Hash) error
+	UpdateRef(ref string, hash Hash) error
 
 	// RemoveRef will remove a Git reference
 	RemoveRef(ref string) error
 
 	// ListRefs will return a list of Git ref matching the given refspec
-	ListRefs(refspec string) ([]string, error)
+	ListRefs(refPrefix string) ([]string, error)
 
 	// RefExist will check if a reference exist in Git
 	RefExist(ref string) (bool, error)
@@ -97,13 +113,11 @@ type Repo interface {
 	CopyRef(source string, dest string) error
 
 	// ListCommits will return the list of tree hashes of a ref, in chronological order
-	ListCommits(ref string) ([]git.Hash, error)
+	ListCommits(ref string) ([]Hash, error)
 }
 
-// ClockedRepo is a Repo that also has Lamport clocks
-type ClockedRepo interface {
-	Repo
-
+// RepoClock give access to Lamport clocks
+type RepoClock interface {
 	// GetOrCreateClock return a Lamport clock stored in the Repo.
 	// If the clock doesn't exist, it's created.
 	GetOrCreateClock(name string) (lamport.Clock, error)
@@ -121,41 +135,14 @@ type ClockLoader struct {
 	Witnesser func(repo ClockedRepo) error
 }
 
-func prepareTreeEntries(entries []TreeEntry) bytes.Buffer {
-	var buffer bytes.Buffer
-
-	for _, entry := range entries {
-		buffer.WriteString(entry.Format())
-	}
-
-	return buffer
-}
-
-func readTreeEntries(s string) ([]TreeEntry, error) {
-	split := strings.Split(strings.TrimSpace(s), "\n")
-
-	casted := make([]TreeEntry, len(split))
-	for i, line := range split {
-		if line == "" {
-			continue
-		}
-
-		entry, err := ParseTreeEntry(line)
-
-		if err != nil {
-			return nil, err
-		}
-
-		casted[i] = entry
-	}
-
-	return casted, nil
-}
-
 // TestedRepo is an extended ClockedRepo with function for testing only
 type TestedRepo interface {
 	ClockedRepo
+	repoTest
+}
 
+// repoTest give access to test only functions
+type repoTest interface {
 	// AddRemote add a new remote to the repository
 	AddRemote(name string, url string) error
 }

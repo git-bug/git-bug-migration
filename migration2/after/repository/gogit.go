@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	stdpath "path"
 	"path/filepath"
 	"strings"
@@ -137,10 +138,16 @@ func InitGoGitRepo(path string) (*GoGitRepo, error) {
 		return nil, err
 	}
 
+	k, err := defaultKeyring()
+	if err != nil {
+		return nil, err
+	}
+
 	return &GoGitRepo{
-		r:      r,
-		path:   path + "/.git",
-		clocks: make(map[string]lamport.Clock),
+		r:       r,
+		path:    path + "/.git",
+		clocks:  make(map[string]lamport.Clock),
+		keyring: k,
 	}, nil
 }
 
@@ -151,21 +158,38 @@ func InitBareGoGitRepo(path string) (*GoGitRepo, error) {
 		return nil, err
 	}
 
+	k, err := defaultKeyring()
+	if err != nil {
+		return nil, err
+	}
+
 	return &GoGitRepo{
-		r:      r,
-		path:   path,
-		clocks: make(map[string]lamport.Clock),
+		r:       r,
+		path:    path,
+		clocks:  make(map[string]lamport.Clock),
+		keyring: k,
 	}, nil
 }
 
+// LocalConfig give access to the repository scoped configuration
 func (repo *GoGitRepo) LocalConfig() Config {
-	return newGoGitConfig(repo.r)
+	return newGoGitLocalConfig(repo.r)
 }
 
+// GlobalConfig give access to the global scoped configuration
 func (repo *GoGitRepo) GlobalConfig() Config {
-	panic("go-git doesn't support writing global config")
+	// TODO: replace that with go-git native implementation once it's supported
+	// see: https://github.com/go-git/go-git
+	// see: https://github.com/src-d/go-git/issues/760
+	return newGoGitGlobalConfig(repo.r)
 }
 
+// AnyConfig give access to a merged local/global configuration
+func (repo *GoGitRepo) AnyConfig() ConfigRead {
+	return mergeConfig(repo.LocalConfig(), repo.GlobalConfig())
+}
+
+// Keyring give access to a user-wide storage for secrets
 func (repo *GoGitRepo) Keyring() Keyring {
 	return repo.keyring
 }
@@ -197,8 +221,45 @@ func (repo *GoGitRepo) GetUserEmail() (string, error) {
 
 // GetCoreEditor returns the name of the editor that the user has used to configure git.
 func (repo *GoGitRepo) GetCoreEditor() (string, error) {
+	// See https://git-scm.com/docs/git-var
+	// The order of preference is the $GIT_EDITOR environment variable, then core.editor configuration, then $VISUAL, then $EDITOR, and then the default chosen at compile time, which is usually vi.
 
-	panic("implement me")
+	if val, ok := os.LookupEnv("GIT_EDITOR"); ok {
+		return val, nil
+	}
+
+	val, err := repo.AnyConfig().ReadString("core.editor")
+	if err == nil && val != "" {
+		return val, nil
+	}
+	if err != nil && err != ErrNoConfigEntry {
+		return "", err
+	}
+
+	if val, ok := os.LookupEnv("VISUAL"); ok {
+		return val, nil
+	}
+
+	if val, ok := os.LookupEnv("EDITOR"); ok {
+		return val, nil
+	}
+
+	priorities := []string{
+		"editor",
+		"nano",
+		"vim",
+		"vi",
+		"emacs",
+	}
+
+	for _, cmd := range priorities {
+		if _, err = exec.LookPath(cmd); err == nil {
+			return cmd, nil
+		}
+
+	}
+
+	return "ed", nil
 }
 
 // GetRemotes returns the configured remotes repositories.
@@ -227,6 +288,9 @@ func (repo *GoGitRepo) FetchRefs(remote string, refSpec string) (string, error) 
 		RefSpecs:   []config.RefSpec{config.RefSpec(refSpec)},
 		Progress:   buf,
 	})
+	if err == gogit.NoErrAlreadyUpToDate {
+		return "already up-to-date", nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -243,6 +307,9 @@ func (repo *GoGitRepo) PushRefs(remote string, refSpec string) (string, error) {
 		RefSpecs:   []config.RefSpec{config.RefSpec(refSpec)},
 		Progress:   buf,
 	})
+	if err == gogit.NoErrAlreadyUpToDate {
+		return "already up-to-date", nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -288,6 +355,7 @@ func (repo *GoGitRepo) ReadData(hash Hash) ([]byte, error) {
 	return ioutil.ReadAll(r)
 }
 
+// StoreTree will store a mapping key-->Hash as a Git tree
 func (repo *GoGitRepo) StoreTree(mapping []TreeEntry) (Hash, error) {
 	var tree object.Tree
 
@@ -319,14 +387,36 @@ func (repo *GoGitRepo) StoreTree(mapping []TreeEntry) (Hash, error) {
 	return Hash(hash.String()), nil
 }
 
+// ReadTree will return the list of entries in a Git tree
 func (repo *GoGitRepo) ReadTree(hash Hash) ([]TreeEntry, error) {
-	obj, err := repo.r.TreeObject(plumbing.NewHash(hash.String()))
+	h := plumbing.NewHash(hash.String())
+
+	// the given hash could be a tree or a commit
+	obj, err := repo.r.Storer.EncodedObject(plumbing.AnyObject, h)
 	if err != nil {
 		return nil, err
 	}
 
-	treeEntries := make([]TreeEntry, len(obj.Entries))
-	for i, entry := range obj.Entries {
+	var tree *object.Tree
+	switch obj.Type() {
+	case plumbing.TreeObject:
+		tree, err = object.DecodeTree(repo.r.Storer, obj)
+	case plumbing.CommitObject:
+		var commit *object.Commit
+		commit, err = object.DecodeCommit(repo.r.Storer, obj)
+		if err != nil {
+			return nil, err
+		}
+		tree, err = commit.Tree()
+	default:
+		return nil, fmt.Errorf("given hash is not a tree")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	treeEntries := make([]TreeEntry, len(tree.Entries))
+	for i, entry := range tree.Entries {
 		objType := Blob
 		if entry.Mode == filemode.Dir {
 			objType = Tree
@@ -342,10 +432,12 @@ func (repo *GoGitRepo) ReadTree(hash Hash) ([]TreeEntry, error) {
 	return treeEntries, nil
 }
 
+// StoreCommit will store a Git commit with the given Git tree
 func (repo *GoGitRepo) StoreCommit(treeHash Hash) (Hash, error) {
 	return repo.StoreCommitWithParent(treeHash, "")
 }
 
+// StoreCommit will store a Git commit with the given Git tree
 func (repo *GoGitRepo) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, error) {
 	cfg, err := repo.r.Config()
 	if err != nil {
@@ -354,14 +446,14 @@ func (repo *GoGitRepo) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, 
 
 	commit := object.Commit{
 		Author: object.Signature{
-			cfg.Author.Name,
-			cfg.Author.Email,
-			time.Now(),
+			Name:  cfg.Author.Name,
+			Email: cfg.Author.Email,
+			When:  time.Now(),
 		},
 		Committer: object.Signature{
-			cfg.Committer.Name,
-			cfg.Committer.Email,
-			time.Now(),
+			Name:  cfg.Committer.Name,
+			Email: cfg.Committer.Email,
+			When:  time.Now(),
 		},
 		Message:  "",
 		TreeHash: plumbing.NewHash(treeHash.String()),
@@ -386,6 +478,7 @@ func (repo *GoGitRepo) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, 
 	return Hash(hash.String()), nil
 }
 
+// GetTreeHash return the git tree hash referenced in a commit
 func (repo *GoGitRepo) GetTreeHash(commit Hash) (Hash, error) {
 	obj, err := repo.r.CommitObject(plumbing.NewHash(commit.String()))
 	if err != nil {
@@ -395,6 +488,7 @@ func (repo *GoGitRepo) GetTreeHash(commit Hash) (Hash, error) {
 	return Hash(obj.TreeHash.String()), nil
 }
 
+// FindCommonAncestor will return the last common ancestor of two chain of commit
 func (repo *GoGitRepo) FindCommonAncestor(commit1 Hash, commit2 Hash) (Hash, error) {
 	obj1, err := repo.r.CommitObject(plumbing.NewHash(commit1.String()))
 	if err != nil {
@@ -413,14 +507,17 @@ func (repo *GoGitRepo) FindCommonAncestor(commit1 Hash, commit2 Hash) (Hash, err
 	return Hash(commits[0].Hash.String()), nil
 }
 
+// UpdateRef will create or update a Git reference
 func (repo *GoGitRepo) UpdateRef(ref string, hash Hash) error {
 	return repo.r.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(ref), plumbing.NewHash(hash.String())))
 }
 
+// RemoveRef will remove a Git reference
 func (repo *GoGitRepo) RemoveRef(ref string) error {
 	return repo.r.Storer.RemoveReference(plumbing.ReferenceName(ref))
 }
 
+// ListRefs will return a list of Git ref matching the given refspec
 func (repo *GoGitRepo) ListRefs(refPrefix string) ([]string, error) {
 	refIter, err := repo.r.References()
 	if err != nil {
@@ -442,6 +539,7 @@ func (repo *GoGitRepo) ListRefs(refPrefix string) ([]string, error) {
 	return refs, nil
 }
 
+// RefExist will check if a reference exist in Git
 func (repo *GoGitRepo) RefExist(ref string) (bool, error) {
 	_, err := repo.r.Reference(plumbing.ReferenceName(ref), false)
 	if err == nil {
@@ -452,6 +550,7 @@ func (repo *GoGitRepo) RefExist(ref string) (bool, error) {
 	return false, err
 }
 
+// CopyRef will create a new reference with the same value as another one
 func (repo *GoGitRepo) CopyRef(source string, dest string) error {
 	r, err := repo.r.Reference(plumbing.ReferenceName(source), false)
 	if err != nil {
@@ -460,6 +559,7 @@ func (repo *GoGitRepo) CopyRef(source string, dest string) error {
 	return repo.r.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(dest), r.Hash()))
 }
 
+// ListCommits will return the list of tree hashes of a ref, in chronological order
 func (repo *GoGitRepo) ListCommits(ref string) ([]Hash, error) {
 	r, err := repo.r.Reference(plumbing.ReferenceName(ref), false)
 	if err != nil {
@@ -470,16 +570,14 @@ func (repo *GoGitRepo) ListCommits(ref string) ([]Hash, error) {
 	if err != nil {
 		return nil, err
 	}
-	commits := []Hash{Hash(commit.Hash.String())}
+	hashes := []Hash{Hash(commit.Hash.String())}
 
 	for {
 		commit, err = commit.Parent(0)
-
+		if err == object.ErrParentNotFound {
+			break
+		}
 		if err != nil {
-			if err == object.ErrParentNotFound {
-				break
-			}
-
 			return nil, err
 		}
 
@@ -487,10 +585,10 @@ func (repo *GoGitRepo) ListCommits(ref string) ([]Hash, error) {
 			return nil, fmt.Errorf("multiple parents")
 		}
 
-		commits = append(commits, Hash(commit.Hash.String()))
+		hashes = append([]Hash{Hash(commit.Hash.String())}, hashes...)
 	}
 
-	return commits, nil
+	return hashes, nil
 }
 
 // GetOrCreateClock return a Lamport clock stored in the Repo.
@@ -507,7 +605,7 @@ func (repo *GoGitRepo) GetOrCreateClock(name string) (lamport.Clock, error) {
 	repo.clocksMutex.Lock()
 	defer repo.clocksMutex.Unlock()
 
-	p := clockPath + name + "-clock"
+	p := stdpath.Join(repo.path, clockPath, name+"-clock")
 
 	c, err = lamport.NewPersistedClock(p)
 	if err != nil {
@@ -526,7 +624,7 @@ func (repo *GoGitRepo) getClock(name string) (lamport.Clock, error) {
 		return c, nil
 	}
 
-	p := clockPath + name + "-clock"
+	p := stdpath.Join(repo.path, clockPath, name+"-clock")
 
 	c, err := lamport.LoadPersistedClock(p)
 	if err == nil {

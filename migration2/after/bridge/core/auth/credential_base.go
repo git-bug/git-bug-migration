@@ -17,10 +17,6 @@ type CredentialBase struct {
 	MetaT       map[string]string `json:"meta"`
 }
 
-func NewCredentialBase(target string, createTime time.Time, salt []byte, meta map[string]string) *CredentialBase {
-	return &CredentialBase{TargetT: target, CreateTimeT: createTime, SaltT: salt, MetaT: meta}
-}
-
 func newCredentialBase(target string) *CredentialBase {
 	return &CredentialBase{
 		TargetT:     target,

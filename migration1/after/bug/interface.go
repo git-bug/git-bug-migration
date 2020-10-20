@@ -19,7 +19,7 @@ type Interface interface {
 	// Indicate that the in-memory state changed and need to be commit in the repository
 	NeedCommit() bool
 
-	// Commit write the staging area in Git and move the operations to the packs
+	// Commit write the staging area in Git and move the operations to the Packs
 	Commit(repo repository.ClockedRepo) error
 
 	// Merge a different version of the same bug by rebasing operations of this bug

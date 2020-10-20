@@ -10,7 +10,7 @@ import (
 
 	"github.com/MichaelMure/git-bug-migration/migration1/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration1/after/identity"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/git"
+	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
 )
 
 // OperationType is an operation type identifier
@@ -37,7 +37,7 @@ type Operation interface {
 	// Time return the time when the operation was added
 	Time() time.Time
 	// GetFiles return the files needed by this operation
-	GetFiles() []git.Hash
+	GetFiles() []repository.Hash
 	// Apply the operation to a Snapshot to create the final state
 	Apply(snapshot *Snapshot)
 	// Validate check if the operation is valid (ex: a title is a single line)
@@ -52,7 +52,6 @@ type Operation interface {
 	GetAuthor() identity.Interface
 	// SetAuthor sets the author identity
 	SetAuthor(identity.Interface)
-
 	// sign-post method for gqlgen
 	IsOperation()
 }
@@ -70,7 +69,7 @@ func idOperation(op Operation) entity.Id {
 		panic("op's id not set")
 	}
 	if base.id == entity.UnsetId {
-		// This means we are trying to get the op's Id *before* it has been stored, for instance when
+		// This means we are trying to get the op's Id *before_test* it has been stored, for instance when
 		// adding multiple ops in one go in an OperationPack.
 		// As the Id is computed based on the actual bytes written on the disk, we are going to predict
 		// those and then get the Id. This is safe as it will be the exact same code writing on disk later.
@@ -144,7 +143,7 @@ func (op *OpBase) Time() time.Time {
 }
 
 // GetFiles return the files needed by this operation
-func (op *OpBase) GetFiles() []git.Hash {
+func (op *OpBase) GetFiles() []repository.Hash {
 	return nil
 }
 
@@ -221,6 +220,6 @@ func (op *OpBase) GetAuthor() identity.Interface {
 }
 
 // SetAuthor return author identity
-func (op *OpBase) SetAuthor(author identity.Interface) {
-	op.Author = author
+func (op *OpBase) SetAuthor(identity identity.Interface) {
+	op.Author = identity
 }

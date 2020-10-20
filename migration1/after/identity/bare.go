@@ -87,7 +87,7 @@ func (i *Bare) Id() entity.Id {
 		panic("identity's id not set")
 	}
 	if i.id == entity.UnsetId {
-		// This means we are trying to get the identity identifier *before* it has been stored
+		// This means we are trying to get the identity identifier *before_test* it has been stored
 		// As the Id is computed based on the actual bytes written on the disk, we are going to predict
 		// those and then get the Id. This is safe as it will be the exact same code writing on disk later.
 
@@ -185,14 +185,14 @@ func (i *Bare) Validate() error {
 
 // Write the identity into the Repository. In particular, this ensure that
 // the Id is properly set.
-func (i *Bare) Commit(repo repository.ClockedRepo) error {
+func (i *Bare) CommitWithRepo(repo repository.ClockedRepo) error {
 	// Nothing to do, everything is directly embedded
 	return nil
 }
 
 // If needed, write the identity into the Repository. In particular, this
 // ensure that the Id is properly set.
-func (i *Bare) CommitAsNeeded(repo repository.ClockedRepo) error {
+func (i *Bare) CommitAsNeededWithRepo(repo repository.ClockedRepo) error {
 	// Nothing to do, everything is directly embedded
 	return nil
 }
@@ -211,4 +211,8 @@ func (i *Bare) LastModificationLamport() lamport.Time {
 // LastModification return the timestamp at which the last version of the identity became valid.
 func (i *Bare) LastModification() timestamp.Timestamp {
 	return 0
+}
+
+func (i *Bare) NeedCommit() bool {
+	return false
 }
