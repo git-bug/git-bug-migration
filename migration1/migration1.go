@@ -26,7 +26,12 @@ func (m *Migration1) Run(repoPath string) error {
 }
 
 func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
-	m.readIdentities(repo)
+	err := m.readIdentities(repo)
+	if err != nil {
+		fmt.Printf("Error while applying migration")
+		// stop the migration
+		return nil
+	}
 
 	// Iterating through all the bugs in the repo
 	for streamedBug := range afterbug.ReadAllLocal(repo) {
@@ -70,14 +75,15 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 	return nil
 }
 
-func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) {
+func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) error {
 	for streamedIdentity := range afteridentity.ReadAllLocal(repo) {
 		if streamedIdentity.Err != nil {
 			fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
-			continue
+			return streamedIdentity.Err
 		}
 		m.allIdentities = append(m.allIdentities, streamedIdentity.Identity)
 	}
+	return nil
 }
 
 func (m *Migration1) migrateBug(oldBug *afterbug.Bug, repo afterrepo.ClockedRepo) (*afterbug.Bug, bool, error) {
