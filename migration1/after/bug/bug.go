@@ -320,7 +320,7 @@ func readAll(repo repository.ClockedRepo, identityResolver identity.Resolver, re
 
 			if err != nil {
 				out <- StreamedBug{Err: err}
-				return
+				continue
 			}
 
 			out <- StreamedBug{Bug: b}

@@ -39,7 +39,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 			if streamedBug.Err != afterbug.ErrInvalidFormatVersion {
 				fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
 			} else {
-				fmt.Printf("skipping bug, already updated")
+				fmt.Printf("skipping bug, already updated\n")
 			}
 			continue
 		}
@@ -66,7 +66,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 				continue
 			}
 
-			fmt.Printf("migrated\n")
+			fmt.Printf("migrated to %s\n", newBug.Id().Human())
 			continue
 		}
 		fmt.Printf("migration not needed\n")
