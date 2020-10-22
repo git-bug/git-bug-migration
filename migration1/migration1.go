@@ -3,37 +3,53 @@ package migration1
 import (
 	"fmt"
 
-	mg1b "github.com/MichaelMure/git-bug-migration/migration1/bug"
-	mg1i "github.com/MichaelMure/git-bug-migration/migration1/identity"
-	mg1r "github.com/MichaelMure/git-bug-migration/migration1/repository"
+	afterbug "github.com/MichaelMure/git-bug-migration/migration1/after/bug"
+	afteridentity "github.com/MichaelMure/git-bug-migration/migration1/after/identity"
+	afterrepo "github.com/MichaelMure/git-bug-migration/migration1/after/repository"
 )
 
-var identities1 []*mg1i.Identity
-
-func readIdentities(repo mg1r.ClockedRepo) {
-	for streamedIdentity := range mg1i.ReadAllLocalIdentities(repo) {
-		if streamedIdentity.Err != nil {
-			fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
-			continue
-		}
-		identities1 = append(identities1, streamedIdentity.Identity)
-	}
+type Migration1 struct {
+	allIdentities []*afteridentity.Identity
 }
 
-func Migrate01(repo mg1r.ClockedRepo) error {
-	readIdentities(repo)
+func (m *Migration1) Description() string {
+	return "Convert legacy identities into a complete data structure in git"
+}
+
+func (m *Migration1) Run(repoPath string) error {
+	repo, err := afterrepo.NewGitRepo(repoPath, nil)
+	if err != nil {
+		return err
+	}
+
+	return m.migrate(repo)
+}
+
+func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
+	err := m.readIdentities(repo)
+	if err != nil {
+		fmt.Printf("Error while applying migration")
+		// stop the migration
+		return nil
+	}
 
 	// Iterating through all the bugs in the repo
-	for streamedBug := range mg1b.ReadAllLocalBugs(repo) {
+	for streamedBug := range afterbug.ReadAllLocal(repo) {
 		if streamedBug.Err != nil {
-			fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
+			if streamedBug.Err != afterbug.ErrInvalidFormatVersion {
+				fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
+			} else {
+				fmt.Printf("skipping bug, already updated\n")
+			}
 			continue
 		}
 
+		fmt.Printf("%s: ", streamedBug.Bug.Id().Human())
+
 		oldBug := streamedBug.Bug
-		newBug, changed, err := migrateBug01(oldBug)
+		newBug, changed, err := m.migrateBug(oldBug, repo)
 		if err != nil {
-			fmt.Printf("Got error when parsing bug: %q", err)
+			fmt.Printf("Got error when parsing bug: %q\n", err)
 		}
 
 		// If the bug has been changed, remove the old bug and commit the new one
@@ -44,36 +60,52 @@ func Migrate01(repo mg1r.ClockedRepo) error {
 				continue
 			}
 
-			err = mg1b.RemoveLocalBug(repo, oldBug.Id())
+			err = afterbug.RemoveBug(repo, oldBug.Id())
 			if err != nil {
 				fmt.Printf("Got error when attempting to remove bug: %q\n", err)
 				continue
 			}
+
+			fmt.Printf("migrated to %s\n", newBug.Id().Human())
+			continue
 		}
+		fmt.Printf("migration not needed\n")
 	}
 
 	return nil
 }
 
-func migrateBug01(oldBug *mg1b.Bug) (*mg1b.Bug, bool, error) {
+func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) error {
+	for streamedIdentity := range afteridentity.ReadAllLocal(repo) {
+		if streamedIdentity.Err != nil {
+			fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
+			return streamedIdentity.Err
+		}
+		m.allIdentities = append(m.allIdentities, streamedIdentity.Identity)
+	}
+	return nil
+}
+
+func (m *Migration1) migrateBug(oldBug *afterbug.Bug, repo afterrepo.ClockedRepo) (*afterbug.Bug, bool, error) {
+	if oldBug.Packs[0].FormatVersion != 1 {
+		return nil, false, nil
+	}
+
 	// Making a new bug
-	newBug := mg1b.NewBug()
-	bugChange := false
+	newBug := afterbug.NewBug()
 
 	// Iterating over each operation in the bug
-	it := mg1b.NewOperationIterator(oldBug)
+	it := afterbug.NewOperationIterator(oldBug)
 	for it.Next() {
 		operation := it.Value()
 		oldAuthor := operation.GetAuthor()
 
 		// Checking if the author is of the legacy (bare) type
 		switch oldAuthor.(type) {
-		case *mg1i.Bare:
-			bugChange = true
-
+		case *afteridentity.Bare:
 			// Search existing identities for any traces of this old identity
-			var newAuthor *mg1i.Identity = nil
-			for _, identity := range identities1 {
+			var newAuthor *afteridentity.Identity = nil
+			for _, identity := range m.allIdentities {
 				if oldAuthor.Name() == identity.Name() {
 					newAuthor = identity
 				}
@@ -81,12 +113,17 @@ func migrateBug01(oldBug *mg1b.Bug) (*mg1b.Bug, bool, error) {
 
 			// If no existing identity is found, create a new one
 			if newAuthor == nil {
-				newAuthor = mg1i.NewIdentityFull(
+				newAuthor = afteridentity.NewIdentityFull(
 					oldAuthor.Name(),
 					oldAuthor.Email(),
 					oldAuthor.Login(),
 					oldAuthor.AvatarUrl(),
 				)
+
+				err := newAuthor.Commit(repo)
+				if err != nil {
+					return nil, false, err
+				}
 			}
 
 			// Set the author of the operation to the new identity
@@ -95,7 +132,7 @@ func migrateBug01(oldBug *mg1b.Bug) (*mg1b.Bug, bool, error) {
 			continue
 
 		// If the author's identity is a new identity type, its fine. Just append it to the cache
-		case *mg1i.Identity:
+		case *afteridentity.Identity:
 			newBug.Append(operation)
 			continue
 
@@ -105,5 +142,5 @@ func migrateBug01(oldBug *mg1b.Bug) (*mg1b.Bug, bool, error) {
 		}
 	}
 
-	return newBug, bugChange, nil
+	return newBug, true, nil
 }
