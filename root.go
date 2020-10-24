@@ -25,6 +25,8 @@ func NewRootCommand() *cobra.Command {
 		Short: "A migration tool for git-bug",
 		Long: `git-bug-migration is a tool to migrate git-bug data stored in git repository to a newer format when breaking 
 changes are made in git-bug.
+
+To migrate a repository, go to the corresponding repository and run "git-bug-migration".
 	
 	`,
 

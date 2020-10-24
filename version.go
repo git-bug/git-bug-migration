@@ -27,7 +27,7 @@ func newVersionCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Create a new bug.",
+		Short: "Show git-bug-migration version information.",
 		Run: func(cmd *cobra.Command, args []string) {
 			env.out.Println(version())
 		},
