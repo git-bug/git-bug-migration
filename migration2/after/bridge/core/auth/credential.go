@@ -16,10 +16,10 @@ import (
 const (
 	keyringKeyPrefix     = "auth-"
 	keyringKeyKind       = "kind"
-	keyringKeyTarget     = "TargetT"
+	keyringKeyTarget     = "target"
 	keyringKeyCreateTime = "createtime"
-	keyringKeySalt       = "SaltT"
-	keyringKeyPrefixMeta = "MetaT."
+	keyringKeySalt       = "salt"
+	keyringKeyPrefixMeta = "meta."
 
 	MetaKeyLogin   = "login"
 	MetaKeyBaseURL = "base-url"
