@@ -1,0 +1,40 @@
+package bug
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/MichaelMure/git-bug-migration/migration3/before/identity"
+	"github.com/MichaelMure/git-bug-migration/migration3/before/repository"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestLabelChangeSerialize(t *testing.T) {
+	repo := repository.NewMockRepoForTest()
+	rene := identity.NewIdentity("René Descartes", "rene@descartes.fr")
+	err := rene.Commit(repo)
+	require.NoError(t, err)
+
+	unix := time.Now().Unix()
+	before := NewLabelChangeOperation(rene, unix, []Label{"added"}, []Label{"removed"})
+
+	data, err := json.Marshal(before)
+	assert.NoError(t, err)
+
+	var after LabelChangeOperation
+	err = json.Unmarshal(data, &after)
+	assert.NoError(t, err)
+
+	// enforce creating the ID
+	before.Id()
+
+	// Replace the identity stub with the real thing
+	assert.Equal(t, rene.Id(), after.base().Author.Id())
+	after.Author = rene
+
+	assert.Equal(t, before, &after)
+}

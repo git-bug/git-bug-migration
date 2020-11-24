@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelMure/git-bug-migration/migration1"
 	"github.com/MichaelMure/git-bug-migration/migration2"
+	"github.com/MichaelMure/git-bug-migration/migration3"
 )
 
 const rootCommandName = "git-bug-migration"
@@ -18,6 +19,7 @@ func NewRootCommand() *cobra.Command {
 	migrations := []Migration{
 		&migration1.Migration1{},
 		&migration2.Migration2{},
+		&migration3.Migration3{},
 	}
 
 	cmd := &cobra.Command{
