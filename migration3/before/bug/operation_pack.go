@@ -47,6 +47,8 @@ func (opp *OperationPack) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	opp.FormatVersion = aux.Version
+
 	if aux.Version < formatVersion {
 		return fmt.Errorf("outdated repository format, please use https://github.com/MichaelMure/git-bug-migration to upgrade")
 	}

@@ -69,10 +69,11 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 		if err != nil {
 			return err
 		}
+		fmt.Println(newBug)
 		if err := newBug.Commit(newRepo); err != nil {
 			return err
 		}
-		fmt.Printf("migrated to %s\n", oldBug.Id().Human(), newBug.Id().Human())
+		fmt.Printf("migrated to %s\n", newBug.Id().Human())
 		if err := beforebug.RemoveBug(oldRepo, oldBug.Id()); err != nil {
 			return err
 		}
