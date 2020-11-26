@@ -1,6 +1,7 @@
 package migration3
 
 import (
+	"errors"
 	"fmt"
 
 	afterbug "github.com/MichaelMure/git-bug-migration/migration3/after/bug"
@@ -41,6 +42,14 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 	migratedIdentities := map[beforeentity.Id]*afteridentity.Identity{}
 
 	for streamedIdentity := range identities {
+		if streamedIdentity.Err != nil {
+			if errors.Is(streamedIdentity.Err, beforeidentity.ErrInvalidFormatVersion) {
+				fmt.Print("skipping bug, already updated\n")
+				continue
+			} else {
+				return streamedIdentity.Err
+			}
+		}
 		oldIdentity := streamedIdentity.Identity
 		fmt.Printf("identity %s: ", oldIdentity.Id().Human())
 		newIdentity, err := afteridentity.NewIdentityFull(
@@ -63,11 +72,22 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 	}
 
 	for streamedBug := range bugs {
+		if streamedBug.Err != nil {
+			if errors.Is(streamedBug.Err, beforebug.ErrInvalidFormatVersion) {
+				fmt.Print("skipping bug, already updated\n")
+				continue
+			} else {
+				return streamedBug.Err
+			}
+		}
 		oldBug := streamedBug.Bug
 		fmt.Printf("bug %s: ", oldBug.Id().Human())
 		newBug, err := migrateBug(oldBug, migratedIdentities)
 		if err != nil {
 			return err
+		} else if newBug == nil {
+			fmt.Print("skipping bug, already updated\n")
+			return nil
 		}
 		if err := newBug.Commit(newRepo); err != nil {
 			return err

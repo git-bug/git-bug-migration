@@ -13,6 +13,8 @@ import (
 // 2: no more legacy identities
 const formatVersion = 2
 
+var ErrInvalidFormatVersion = fmt.Errorf("invalid format version")
+
 // OperationPack represent an ordered set of operation to apply
 // to a Bug. These operations are stored in a single Git commit.
 //
@@ -50,10 +52,10 @@ func (opp *OperationPack) UnmarshalJSON(data []byte) error {
 	opp.FormatVersion = aux.Version
 
 	if aux.Version < formatVersion {
-		return fmt.Errorf("outdated repository format, please use https://github.com/MichaelMure/git-bug-migration to upgrade")
+		return ErrInvalidFormatVersion
 	}
 	if aux.Version > formatVersion {
-		return fmt.Errorf("your version of git-bug is too old for this repository (version %v), please upgrade to the latest version", aux.Version)
+		return ErrInvalidFormatVersion
 	}
 
 	for _, raw := range aux.Operations {
