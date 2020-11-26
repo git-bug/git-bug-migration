@@ -17,16 +17,16 @@ import (
 type Migration3 struct{}
 
 func (m *Migration3) Description() string {
-	return "Migrate bridge credentials from the global git config to a keyring"
+	return "Make bug and identities independent from the storage by making the ID generation self-contained"
 }
 
 func (m *Migration3) Run(repoPath string) error {
-	oldRepo, err := beforerepo.NewGitRepo(repoPath, nil)
+	oldRepo, err := beforerepo.NewGoGitRepo(repoPath, nil)
 	if err != nil {
 		return err
 	}
 
-	newRepo, err := afterrepo.NewGitRepo(repoPath, nil)
+	newRepo, err := afterrepo.NewGoGitRepo(repoPath, nil)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 
 	for streamedIdentity := range identities {
 		oldIdentity := streamedIdentity.Identity
-		fmt.Printf("identity %s:\n", oldIdentity.Id().Human())
+		fmt.Printf("identity %s: ", oldIdentity.Id().Human())
 		newIdentity, err := afteridentity.NewIdentityFull(
 			newRepo,
 			oldIdentity.Name(),
@@ -64,12 +64,11 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 
 	for streamedBug := range bugs {
 		oldBug := streamedBug.Bug
-		fmt.Printf("bug %s:\n", oldBug.Id().Human())
+		fmt.Printf("bug %s: ", oldBug.Id().Human())
 		newBug, err := migrateBug(oldBug, migratedIdentities)
 		if err != nil {
 			return err
 		}
-		fmt.Println(newBug)
 		if err := newBug.Commit(newRepo); err != nil {
 			return err
 		}

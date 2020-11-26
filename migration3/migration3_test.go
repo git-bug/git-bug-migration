@@ -36,9 +36,9 @@ func TestMigrate23(t *testing.T) {
 	err = os.Chdir(dir)
 	require.Nil(t, err, "got error when opening temporary repository folder")
 
-	oldRepo, err := beforerepo.InitGitRepo(dir)
+	oldRepo, err := beforerepo.InitGoGitRepo(dir)
 	require.Nil(t, err, "got error when initializing old repository")
-	newRepo, err := afterrepo.InitGitRepo(dir)
+	newRepo, err := afterrepo.NewGoGitRepo(dir, nil)
 	require.Nil(t, err, "got error when initializing new repository")
 
 	oldVinc := beforeidentity.NewIdentityFull(
