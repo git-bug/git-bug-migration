@@ -47,7 +47,7 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 				fmt.Print("skipping bug, already updated\n")
 				continue
 			} else {
-				return streamedIdentity.Err
+				fmt.Printf("got error, assuming identity already migrated: %q", streamedIdentity.Err)
 			}
 		}
 		oldIdentity := streamedIdentity.Identity
@@ -73,21 +73,19 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 
 	for streamedBug := range bugs {
 		if streamedBug.Err != nil {
-			if errors.Is(streamedBug.Err, beforebug.ErrInvalidFormatVersion) {
-				fmt.Print("skipping bug, already updated\n")
-				continue
+			if streamedBug.Err != beforebug.ErrInvalidFormatVersion {
+				fmt.Printf("got error when reading bug, assuming data is already migrated: %q\n", streamedBug.Err)
 			} else {
-				return streamedBug.Err
+				fmt.Printf("skipping bug, already updated\n")
 			}
+			continue
 		}
+
 		oldBug := streamedBug.Bug
 		fmt.Printf("bug %s: ", oldBug.Id().Human())
 		newBug, err := migrateBug(oldBug, migratedIdentities)
 		if err != nil {
 			return err
-		} else if newBug == nil {
-			fmt.Print("skipping bug, already updated\n")
-			return nil
 		}
 		if err := newBug.Commit(newRepo); err != nil {
 			return err
@@ -108,10 +106,6 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 }
 
 func migrateBug(oldBug *beforebug.Bug, migratedIdentities map[beforeentity.Id]*afteridentity.Identity) (*afterbug.Bug, error) {
-	if oldBug.Packs[0].FormatVersion != 2 {
-		return nil, nil
-	}
-
 	// Making a new bug
 	newBug := afterbug.NewBug()
 

@@ -3,6 +3,8 @@ package migration1
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
+
 	afterbug "github.com/MichaelMure/git-bug-migration/migration1/after/bug"
 	afteridentity "github.com/MichaelMure/git-bug-migration/migration1/after/identity"
 	afterrepo "github.com/MichaelMure/git-bug-migration/migration1/after/repository"
@@ -28,7 +30,7 @@ func (m *Migration1) Run(repoPath string) error {
 func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 	err := m.readIdentities(repo)
 	if err != nil {
-		fmt.Printf("Error while applying migration")
+		fmt.Printf("Error while applying migration\n")
 		// stop the migration
 		return nil
 	}
@@ -37,7 +39,7 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 	for streamedBug := range afterbug.ReadAllLocal(repo) {
 		if streamedBug.Err != nil {
 			if streamedBug.Err != afterbug.ErrInvalidFormatVersion {
-				fmt.Printf("Got error when reading bug: %q\n", streamedBug.Err)
+				fmt.Printf("got error when reading bug, assuming data is already migrated: %q\n", streamedBug.Err)
 			} else {
 				fmt.Printf("skipping bug, already updated\n")
 			}
@@ -77,9 +79,14 @@ func (m *Migration1) migrate(repo afterrepo.ClockedRepo) error {
 
 func (m *Migration1) readIdentities(repo afterrepo.ClockedRepo) error {
 	for streamedIdentity := range afteridentity.ReadAllLocal(repo) {
-		if streamedIdentity.Err != nil {
-			fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
-			return streamedIdentity.Err
+		if err := streamedIdentity.Err; err != nil {
+			if errors.Is(err, afteridentity.ErrIncorrectIdentityFormatVersion) {
+				fmt.Print("skipping identity, already updated\n")
+				continue
+			} else {
+				fmt.Printf("Got error when reading identity: %q", streamedIdentity.Err)
+				return streamedIdentity.Err
+			}
 		}
 		m.allIdentities = append(m.allIdentities, streamedIdentity.Identity)
 	}

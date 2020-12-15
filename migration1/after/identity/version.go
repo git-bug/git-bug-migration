@@ -15,6 +15,8 @@ import (
 
 const formatVersion = 1
 
+var ErrIncorrectIdentityFormatVersion = fmt.Errorf("unknown format version")
+
 // Version is a complete set of information about an Identity at a point in time.
 type Version struct {
 	// The lamport time at which this version become effective
@@ -102,7 +104,7 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 	}
 
 	if aux.FormatVersion != formatVersion {
-		return fmt.Errorf("unknown format version %v", aux.FormatVersion)
+		return ErrIncorrectIdentityFormatVersion
 	}
 
 	v.time = aux.Time
