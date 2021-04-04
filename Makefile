@@ -16,7 +16,7 @@ install:
 	go install -ldflags "$(LDFLAGS)" .
 
 releases:
-	gox -ldflags "$(LDFLAGS)" -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"
+	gox -ldflags "$(LDFLAGS)" -osarch '!darwin/386' -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"
 
 test:
 	go test -v -bench=. ./...
