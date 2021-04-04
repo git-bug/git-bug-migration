@@ -37,7 +37,7 @@ type version struct {
 	keys []*Key
 
 	// mandatory random bytes to ensure a better randomness of the data of the first
-	// version of a bug, used to later generate the ID
+	// version of an identity, used to later generate the ID
 	// len(Nonce) should be > 20 and < 64 bytes
 	// It has no functional purpose and should be ignored.
 	// TODO: optional after first version?
@@ -159,11 +159,8 @@ func (v *version) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if aux.FormatVersion < formatVersion {
-		return fmt.Errorf("outdated repository format, please use https://github.com/MichaelMure/git-bug-migration to upgrade")
-	}
-	if aux.FormatVersion > formatVersion {
-		return fmt.Errorf("your version of git-bug is too old for this repository (identity format %v), please upgrade to the latest version", aux.FormatVersion)
+	if aux.FormatVersion != formatVersion {
+		return entity.NewErrInvalidFormat(aux.FormatVersion, formatVersion)
 	}
 
 	v.id = entity.DeriveId(data)

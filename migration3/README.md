@@ -5,5 +5,3 @@ Changes:
 - Exposed formatVersion of OperationPack
 - Removed error wrapping for bug and identity decoding
 - Added custom error message for invalid formatVersion
- 
-Usage: This version is used to update the bug and identity ids to meet the new standards

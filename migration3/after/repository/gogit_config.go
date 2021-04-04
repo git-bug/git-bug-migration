@@ -24,7 +24,11 @@ func newGoGitLocalConfig(repo *gogit.Repository) *goGitConfig {
 	}
 }
 
-func newGoGitGlobalConfig(repo *gogit.Repository) *goGitConfig {
+func newGoGitGlobalConfig() *goGitConfig {
+	// TODO: replace that with go-git native implementation once it's supported
+	// see: https://github.com/go-git/go-git
+	// see: https://github.com/src-d/go-git/issues/760
+
 	return &goGitConfig{
 		ConfigRead: &goGitConfigReader{getConfig: func() (*config.Config, error) {
 			return config.LoadConfig(config.GlobalScope)
@@ -130,7 +134,7 @@ func (cr *goGitConfigReader) ReadString(key string) (string, error) {
 		}
 		return section.Option(optionName), nil
 	default:
-		subsectionName := strings.Join(split[1:len(split)-2], ".")
+		subsectionName := strings.Join(split[1:len(split)-1], ".")
 		optionName := split[len(split)-1]
 		if !section.HasSubsection(subsectionName) {
 			return "", ErrNoConfigEntry

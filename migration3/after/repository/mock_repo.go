@@ -1,34 +1,48 @@
 package repository
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/99designs/keyring"
+	"github.com/blevesearch/bleve"
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/memfs"
+	"golang.org/x/crypto/openpgp"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
 )
 
-var _ ClockedRepo = &mockRepoForTest{}
-var _ TestedRepo = &mockRepoForTest{}
+var _ ClockedRepo = &mockRepo{}
+var _ TestedRepo = &mockRepo{}
 
-// mockRepoForTest defines an instance of Repo that can be used for testing.
-type mockRepoForTest struct {
+// mockRepo defines an instance of Repo that can be used for testing.
+type mockRepo struct {
 	*mockRepoConfig
 	*mockRepoKeyring
 	*mockRepoCommon
+	*mockRepoStorage
+	*mockRepoBleve
 	*mockRepoData
 	*mockRepoClock
+	*mockRepoTest
 }
 
-func NewMockRepoForTest() *mockRepoForTest {
-	return &mockRepoForTest{
+func (m *mockRepo) Close() error { return nil }
+
+func NewMockRepo() *mockRepo {
+	return &mockRepo{
 		mockRepoConfig:  NewMockRepoConfig(),
 		mockRepoKeyring: NewMockRepoKeyring(),
 		mockRepoCommon:  NewMockRepoCommon(),
+		mockRepoStorage: NewMockRepoStorage(),
+		mockRepoBleve:   newMockRepoBleve(),
 		mockRepoData:    NewMockRepoData(),
 		mockRepoClock:   NewMockRepoClock(),
+		mockRepoTest:    NewMockRepoTest(),
 	}
 }
 
@@ -86,11 +100,6 @@ func NewMockRepoCommon() *mockRepoCommon {
 	return &mockRepoCommon{}
 }
 
-// GetPath returns the path to the repo.
-func (r *mockRepoCommon) GetPath() string {
-	return "~/mockRepo/"
-}
-
 func (r *mockRepoCommon) GetUserName() (string, error) {
 	return "René Descartes", nil
 }
@@ -108,15 +117,72 @@ func (r *mockRepoCommon) GetCoreEditor() (string, error) {
 // GetRemotes returns the configured remotes repositories.
 func (r *mockRepoCommon) GetRemotes() (map[string]string, error) {
 	return map[string]string{
-		"origin": "git://github.com/MichaelMure/git-bug",
+		"origin": "git://github.com/MichaelMure/git-bug-migration/migration3/after",
 	}, nil
+}
+
+var _ RepoStorage = &mockRepoStorage{}
+
+type mockRepoStorage struct {
+	localFs billy.Filesystem
+}
+
+func NewMockRepoStorage() *mockRepoStorage {
+	return &mockRepoStorage{localFs: memfs.New()}
+}
+
+func (m *mockRepoStorage) LocalStorage() billy.Filesystem {
+	return m.localFs
+}
+
+var _ RepoBleve = &mockRepoBleve{}
+
+type mockRepoBleve struct {
+	indexesMutex sync.Mutex
+	indexes      map[string]bleve.Index
+}
+
+func newMockRepoBleve() *mockRepoBleve {
+	return &mockRepoBleve{
+		indexes: make(map[string]bleve.Index),
+	}
+}
+
+func (m *mockRepoBleve) GetBleveIndex(name string) (bleve.Index, error) {
+	m.indexesMutex.Lock()
+	defer m.indexesMutex.Unlock()
+
+	if index, ok := m.indexes[name]; ok {
+		return index, nil
+	}
+
+	mapping := bleve.NewIndexMapping()
+	mapping.DefaultAnalyzer = "en"
+
+	index, err := bleve.NewMemOnly(mapping)
+	if err != nil {
+		return nil, err
+	}
+
+	m.indexes[name] = index
+
+	return index, nil
+}
+
+func (m *mockRepoBleve) ClearBleveIndex(name string) error {
+	m.indexesMutex.Lock()
+	defer m.indexesMutex.Unlock()
+
+	delete(m.indexes, name)
+	return nil
 }
 
 var _ RepoData = &mockRepoData{}
 
 type commit struct {
 	treeHash Hash
-	parent   Hash
+	parents  []Hash
+	sig      string
 }
 
 type mockRepoData struct {
@@ -135,13 +201,13 @@ func NewMockRepoData() *mockRepoData {
 	}
 }
 
-// PushRefs push git refs to a remote
-func (r *mockRepoData) PushRefs(remote string, refSpec string) (string, error) {
-	return "", nil
+func (r *mockRepoData) FetchRefs(remote string, prefix string) (string, error) {
+	panic("implement me")
 }
 
-func (r *mockRepoData) FetchRefs(remote string, refSpec string) (string, error) {
-	return "", nil
+// PushRefs push git refs to a remote
+func (r *mockRepoData) PushRefs(remote string, prefix string) (string, error) {
+	panic("implement me")
 }
 
 func (r *mockRepoData) StoreData(data []byte) (Hash, error) {
@@ -153,7 +219,6 @@ func (r *mockRepoData) StoreData(data []byte) (Hash, error) {
 
 func (r *mockRepoData) ReadData(hash Hash) ([]byte, error) {
 	data, ok := r.blobs[hash]
-
 	if !ok {
 		return nil, fmt.Errorf("unknown hash")
 	}
@@ -168,82 +233,6 @@ func (r *mockRepoData) StoreTree(entries []TreeEntry) (Hash, error) {
 	r.trees[hash] = buffer.String()
 
 	return hash, nil
-}
-
-func (r *mockRepoData) StoreCommit(treeHash Hash) (Hash, error) {
-	rawHash := sha1.Sum([]byte(treeHash))
-	hash := Hash(fmt.Sprintf("%x", rawHash))
-	r.commits[hash] = commit{
-		treeHash: treeHash,
-	}
-	return hash, nil
-}
-
-func (r *mockRepoData) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, error) {
-	rawHash := sha1.Sum([]byte(treeHash + parent))
-	hash := Hash(fmt.Sprintf("%x", rawHash))
-	r.commits[hash] = commit{
-		treeHash: treeHash,
-		parent:   parent,
-	}
-	return hash, nil
-}
-
-func (r *mockRepoData) UpdateRef(ref string, hash Hash) error {
-	r.refs[ref] = hash
-	return nil
-}
-
-func (r *mockRepoData) RemoveRef(ref string) error {
-	delete(r.refs, ref)
-	return nil
-}
-
-func (r *mockRepoData) RefExist(ref string) (bool, error) {
-	_, exist := r.refs[ref]
-	return exist, nil
-}
-
-func (r *mockRepoData) CopyRef(source string, dest string) error {
-	hash, exist := r.refs[source]
-
-	if !exist {
-		return fmt.Errorf("Unknown ref")
-	}
-
-	r.refs[dest] = hash
-	return nil
-}
-
-func (r *mockRepoData) ListRefs(refPrefix string) ([]string, error) {
-	var keys []string
-
-	for k := range r.refs {
-		if strings.HasPrefix(k, refPrefix) {
-			keys = append(keys, k)
-		}
-	}
-
-	return keys, nil
-}
-
-func (r *mockRepoData) ListCommits(ref string) ([]Hash, error) {
-	var hashes []Hash
-
-	hash := r.refs[ref]
-
-	for {
-		commit, ok := r.commits[hash]
-
-		if !ok {
-			break
-		}
-
-		hashes = append([]Hash{hash}, hashes...)
-		hash = commit.parent
-	}
-
-	return hashes, nil
 }
 
 func (r *mockRepoData) ReadTree(hash Hash) ([]TreeEntry, error) {
@@ -269,6 +258,111 @@ func (r *mockRepoData) ReadTree(hash Hash) ([]TreeEntry, error) {
 	return readTreeEntries(data)
 }
 
+func (r *mockRepoData) StoreCommit(treeHash Hash, parents ...Hash) (Hash, error) {
+	return r.StoreSignedCommit(treeHash, nil, parents...)
+}
+
+func (r *mockRepoData) StoreSignedCommit(treeHash Hash, signKey *openpgp.Entity, parents ...Hash) (Hash, error) {
+	hasher := sha1.New()
+	hasher.Write([]byte(treeHash))
+	for _, parent := range parents {
+		hasher.Write([]byte(parent))
+	}
+	rawHash := hasher.Sum(nil)
+	hash := Hash(fmt.Sprintf("%x", rawHash))
+	c := commit{
+		treeHash: treeHash,
+		parents:  parents,
+	}
+	if signKey != nil {
+		// unlike go-git, we only sign the tree hash for simplicity instead of all the fields (parents ...)
+		var sig bytes.Buffer
+		if err := openpgp.DetachSign(&sig, signKey, strings.NewReader(string(treeHash)), nil); err != nil {
+			return "", err
+		}
+		c.sig = sig.String()
+	}
+	r.commits[hash] = c
+	return hash, nil
+}
+
+func (r *mockRepoData) ReadCommit(hash Hash) (Commit, error) {
+	c, ok := r.commits[hash]
+	if !ok {
+		return Commit{}, fmt.Errorf("unknown commit")
+	}
+
+	result := Commit{
+		Hash:     hash,
+		Parents:  c.parents,
+		TreeHash: c.treeHash,
+	}
+
+	if c.sig != "" {
+		// Note: this is actually incorrect as the signed data should be the full commit (+comment, +date ...)
+		// but only the tree hash work for our purpose here.
+		result.SignedData = strings.NewReader(string(c.treeHash))
+		result.Signature = strings.NewReader(c.sig)
+	}
+
+	return result, nil
+}
+
+func (r *mockRepoData) GetTreeHash(commit Hash) (Hash, error) {
+	c, ok := r.commits[commit]
+	if !ok {
+		return "", fmt.Errorf("unknown commit")
+	}
+
+	return c.treeHash, nil
+}
+
+func (r *mockRepoData) ResolveRef(ref string) (Hash, error) {
+	h, ok := r.refs[ref]
+	if !ok {
+		return "", fmt.Errorf("unknown ref")
+	}
+	return h, nil
+}
+
+func (r *mockRepoData) UpdateRef(ref string, hash Hash) error {
+	r.refs[ref] = hash
+	return nil
+}
+
+func (r *mockRepoData) RemoveRef(ref string) error {
+	delete(r.refs, ref)
+	return nil
+}
+
+func (r *mockRepoData) ListRefs(refPrefix string) ([]string, error) {
+	var keys []string
+
+	for k := range r.refs {
+		if strings.HasPrefix(k, refPrefix) {
+			keys = append(keys, k)
+		}
+	}
+
+	return keys, nil
+}
+
+func (r *mockRepoData) RefExist(ref string) (bool, error) {
+	_, exist := r.refs[ref]
+	return exist, nil
+}
+
+func (r *mockRepoData) CopyRef(source string, dest string) error {
+	hash, exist := r.refs[source]
+
+	if !exist {
+		return fmt.Errorf("Unknown ref")
+	}
+
+	r.refs[dest] = hash
+	return nil
+}
+
 func (r *mockRepoData) FindCommonAncestor(hash1 Hash, hash2 Hash) (Hash, error) {
 	ancestor1 := []Hash{hash1}
 
@@ -277,8 +371,11 @@ func (r *mockRepoData) FindCommonAncestor(hash1 Hash, hash2 Hash) (Hash, error) 
 		if !ok {
 			return "", fmt.Errorf("unknown commit %v", hash1)
 		}
-		ancestor1 = append(ancestor1, c.parent)
-		hash1 = c.parent
+		if len(c.parents) == 0 {
+			break
+		}
+		ancestor1 = append(ancestor1, c.parents[0])
+		hash1 = c.parents[0]
 	}
 
 	for {
@@ -293,35 +390,23 @@ func (r *mockRepoData) FindCommonAncestor(hash1 Hash, hash2 Hash) (Hash, error) 
 			return "", fmt.Errorf("unknown commit %v", hash1)
 		}
 
-		if c.parent == "" {
+		if c.parents[0] == "" {
 			return "", fmt.Errorf("no ancestor found")
 		}
 
-		hash2 = c.parent
+		hash2 = c.parents[0]
 	}
 }
 
-func (r *mockRepoData) GetTreeHash(commit Hash) (Hash, error) {
-	c, ok := r.commits[commit]
-	if !ok {
-		return "", fmt.Errorf("unknown commit")
-	}
-
-	return c.treeHash, nil
-}
-
-func (r *mockRepoData) AddRemote(name string, url string) error {
-	panic("implement me")
+func (r *mockRepoData) ListCommits(ref string) ([]Hash, error) {
+	return nonNativeListCommits(r, ref)
 }
 
 var _ RepoClock = &mockRepoClock{}
 
 type mockRepoClock struct {
+	mu     sync.Mutex
 	clocks map[string]lamport.Clock
-}
-
-func (r *mockRepoClock) AllClocks() (map[string]lamport.Clock, error) {
-	return r.clocks, nil
 }
 
 func NewMockRepoClock() *mockRepoClock {
@@ -330,7 +415,14 @@ func NewMockRepoClock() *mockRepoClock {
 	}
 }
 
+func (r *mockRepoClock) AllClocks() (map[string]lamport.Clock, error) {
+	return r.clocks, nil
+}
+
 func (r *mockRepoClock) GetOrCreateClock(name string) (lamport.Clock, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if c, ok := r.clocks[name]; ok {
 		return c, nil
 	}
@@ -354,4 +446,25 @@ func (r *mockRepoClock) Witness(name string, time lamport.Time) error {
 		return err
 	}
 	return c.Witness(time)
+}
+
+var _ repoTest = &mockRepoTest{}
+
+type mockRepoTest struct{}
+
+func NewMockRepoTest() *mockRepoTest {
+	return &mockRepoTest{}
+}
+
+func (r *mockRepoTest) AddRemote(name string, url string) error {
+	panic("implement me")
+}
+
+func (r mockRepoTest) GetLocalRemote() string {
+	panic("implement me")
+}
+
+func (r mockRepoTest) EraseFromDisk() error {
+	// nothing to do
+	return nil
 }

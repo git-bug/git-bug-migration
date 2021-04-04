@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -25,6 +24,10 @@ var ErrNoIdentitySet = errors.New("No identity is set.\n" +
 	"To interact with bugs, an identity first needs to be created using " +
 	"\"git bug user create\"")
 var ErrMultipleIdentitiesSet = errors.New("multiple user identities set")
+
+func NewErrMultipleMatchIdentity(matching []entity.Id) *entity.ErrMultipleMatch {
+	return entity.NewErrMultipleMatch("identity", matching)
+}
 
 var _ Interface = &Identity{}
 var _ entity.Interface = &Identity{}
@@ -98,8 +101,7 @@ func ReadRemote(repo repository.Repo, remote string, id string) (*Identity, erro
 
 // read will load and parse an identity from git
 func read(repo repository.Repo, ref string) (*Identity, error) {
-	refSplit := strings.Split(ref, "/")
-	id := entity.Id(refSplit[len(refSplit)-1])
+	id := entity.RefToId(ref)
 
 	if err := id.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid ref")
@@ -151,6 +153,66 @@ func read(repo repository.Repo, ref string) (*Identity, error) {
 	}
 
 	return i, nil
+}
+
+// ListLocalIds list all the available local identity ids
+func ListLocalIds(repo repository.Repo) ([]entity.Id, error) {
+	refs, err := repo.ListRefs(identityRefPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	return entity.RefsToIds(refs), nil
+}
+
+// RemoveIdentity will remove a local identity from its entity.Id
+func RemoveIdentity(repo repository.ClockedRepo, id entity.Id) error {
+	var fullMatches []string
+
+	refs, err := repo.ListRefs(identityRefPattern + id.String())
+	if err != nil {
+		return err
+	}
+	if len(refs) > 1 {
+		return NewErrMultipleMatchIdentity(entity.RefsToIds(refs))
+	}
+	if len(refs) == 1 {
+		// we have the identity locally
+		fullMatches = append(fullMatches, refs[0])
+	}
+
+	remotes, err := repo.GetRemotes()
+	if err != nil {
+		return err
+	}
+
+	for remote := range remotes {
+		remotePrefix := fmt.Sprintf(identityRemoteRefPattern+id.String(), remote)
+		remoteRefs, err := repo.ListRefs(remotePrefix)
+		if err != nil {
+			return err
+		}
+		if len(remoteRefs) > 1 {
+			return NewErrMultipleMatchIdentity(entity.RefsToIds(refs))
+		}
+		if len(remoteRefs) == 1 {
+			// found the identity in a remote
+			fullMatches = append(fullMatches, remoteRefs[0])
+		}
+	}
+
+	if len(fullMatches) == 0 {
+		return ErrIdentityNotExist
+	}
+
+	for _, ref := range fullMatches {
+		err = repo.RemoveRef(ref)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type StreamedIdentity struct {
@@ -282,7 +344,7 @@ func (i *Identity) Commit(repo repository.ClockedRepo) error {
 
 		var commitHash repository.Hash
 		if lastCommit != "" {
-			commitHash, err = repo.StoreCommitWithParent(treeHash, lastCommit)
+			commitHash, err = repo.StoreCommit(treeHash, lastCommit)
 		} else {
 			commitHash, err = repo.StoreCommit(treeHash)
 		}
@@ -454,6 +516,22 @@ func (i *Identity) AvatarUrl() string {
 // Keys return the last version of the valid keys
 func (i *Identity) Keys() []*Key {
 	return i.lastVersion().keys
+}
+
+// SigningKey return the key that should be used to sign new messages. If no key is available, return nil.
+func (i *Identity) SigningKey(repo repository.RepoKeyring) (*Key, error) {
+	keys := i.Keys()
+	for _, key := range keys {
+		err := key.ensurePrivateKey(repo)
+		if err == errNoPrivateKey {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return key, nil
+	}
+	return nil, nil
 }
 
 // ValidKeysAtTime return the set of keys valid at a given lamport time

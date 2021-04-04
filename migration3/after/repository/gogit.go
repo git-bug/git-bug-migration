@@ -5,24 +5,30 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
-	stdpath "path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/blevesearch/bleve"
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/osfs"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"golang.org/x/crypto/openpgp"
+	"golang.org/x/sys/execabs"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
 )
 
+const clockPath = "clocks"
+
 var _ ClockedRepo = &GoGitRepo{}
+var _ TestedRepo = &GoGitRepo{}
 
 type GoGitRepo struct {
 	r    *gogit.Repository
@@ -31,10 +37,15 @@ type GoGitRepo struct {
 	clocksMutex sync.Mutex
 	clocks      map[string]lamport.Clock
 
-	keyring Keyring
+	indexesMutex sync.Mutex
+	indexes      map[string]bleve.Index
+
+	keyring      Keyring
+	localStorage billy.Filesystem
 }
 
-func NewGoGitRepo(path string, clockLoaders []ClockLoader) (*GoGitRepo, error) {
+// OpenGoGitRepo open an already existing repo at the given path
+func OpenGoGitRepo(path string, clockLoaders []ClockLoader) (*GoGitRepo, error) {
 	path, err := detectGitPath(path)
 	if err != nil {
 		return nil, err
@@ -51,10 +62,12 @@ func NewGoGitRepo(path string, clockLoaders []ClockLoader) (*GoGitRepo, error) {
 	}
 
 	repo := &GoGitRepo{
-		r:       r,
-		path:    path,
-		clocks:  make(map[string]lamport.Clock),
-		keyring: k,
+		r:            r,
+		path:         path,
+		clocks:       make(map[string]lamport.Clock),
+		indexes:      make(map[string]bleve.Index),
+		keyring:      k,
+		localStorage: osfs.New(filepath.Join(path, "git-bug")),
 	}
 
 	for _, loader := range clockLoaders {
@@ -76,6 +89,50 @@ func NewGoGitRepo(path string, clockLoaders []ClockLoader) (*GoGitRepo, error) {
 	return repo, nil
 }
 
+// InitGoGitRepo create a new empty git repo at the given path
+func InitGoGitRepo(path string) (*GoGitRepo, error) {
+	r, err := gogit.PlainInit(path, false)
+	if err != nil {
+		return nil, err
+	}
+
+	k, err := defaultKeyring()
+	if err != nil {
+		return nil, err
+	}
+
+	return &GoGitRepo{
+		r:            r,
+		path:         filepath.Join(path, ".git"),
+		clocks:       make(map[string]lamport.Clock),
+		indexes:      make(map[string]bleve.Index),
+		keyring:      k,
+		localStorage: osfs.New(filepath.Join(path, ".git", "git-bug")),
+	}, nil
+}
+
+// InitBareGoGitRepo create a new --bare empty git repo at the given path
+func InitBareGoGitRepo(path string) (*GoGitRepo, error) {
+	r, err := gogit.PlainInit(path, true)
+	if err != nil {
+		return nil, err
+	}
+
+	k, err := defaultKeyring()
+	if err != nil {
+		return nil, err
+	}
+
+	return &GoGitRepo{
+		r:            r,
+		path:         path,
+		clocks:       make(map[string]lamport.Clock),
+		indexes:      make(map[string]bleve.Index),
+		keyring:      k,
+		localStorage: osfs.New(filepath.Join(path, "git-bug")),
+	}, nil
+}
+
 func detectGitPath(path string) (string, error) {
 	// normalize the path
 	path, err := filepath.Abs(path)
@@ -84,12 +141,12 @@ func detectGitPath(path string) (string, error) {
 	}
 
 	for {
-		fi, err := os.Stat(stdpath.Join(path, ".git"))
+		fi, err := os.Stat(filepath.Join(path, ".git"))
 		if err == nil {
 			if !fi.IsDir() {
 				return "", fmt.Errorf(".git exist but is not a directory")
 			}
-			return stdpath.Join(path, ".git"), nil
+			return filepath.Join(path, ".git"), nil
 		}
 		if !os.IsNotExist(err) {
 			// unknown error
@@ -117,7 +174,7 @@ func isGitDir(path string) (bool, error) {
 	markers := []string{"HEAD", "objects", "refs"}
 
 	for _, marker := range markers {
-		_, err := os.Stat(stdpath.Join(path, marker))
+		_, err := os.Stat(filepath.Join(path, marker))
 		if err == nil {
 			continue
 		}
@@ -132,44 +189,15 @@ func isGitDir(path string) (bool, error) {
 	return true, nil
 }
 
-// InitGoGitRepo create a new empty git repo at the given path
-func InitGoGitRepo(path string) (*GoGitRepo, error) {
-	r, err := gogit.PlainInit(path, false)
-	if err != nil {
-		return nil, err
+func (repo *GoGitRepo) Close() error {
+	var firstErr error
+	for _, index := range repo.indexes {
+		err := index.Close()
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-
-	k, err := defaultKeyring()
-	if err != nil {
-		return nil, err
-	}
-
-	return &GoGitRepo{
-		r:       r,
-		path:    path + "/.git",
-		clocks:  make(map[string]lamport.Clock),
-		keyring: k,
-	}, nil
-}
-
-// InitBareGoGitRepo create a new --bare empty git repo at the given path
-func InitBareGoGitRepo(path string) (*GoGitRepo, error) {
-	r, err := gogit.PlainInit(path, true)
-	if err != nil {
-		return nil, err
-	}
-
-	k, err := defaultKeyring()
-	if err != nil {
-		return nil, err
-	}
-
-	return &GoGitRepo{
-		r:       r,
-		path:    path,
-		clocks:  make(map[string]lamport.Clock),
-		keyring: k,
-	}, nil
+	return firstErr
 }
 
 // LocalConfig give access to the repository scoped configuration
@@ -179,10 +207,7 @@ func (repo *GoGitRepo) LocalConfig() Config {
 
 // GlobalConfig give access to the global scoped configuration
 func (repo *GoGitRepo) GlobalConfig() Config {
-	// TODO: replace that with go-git native implementation once it's supported
-	// see: https://github.com/go-git/go-git
-	// see: https://github.com/src-d/go-git/issues/760
-	return newGoGitGlobalConfig(repo.r)
+	return newGoGitGlobalConfig()
 }
 
 // AnyConfig give access to a merged local/global configuration
@@ -193,11 +218,6 @@ func (repo *GoGitRepo) AnyConfig() ConfigRead {
 // Keyring give access to a user-wide storage for secrets
 func (repo *GoGitRepo) Keyring() Keyring {
 	return repo.keyring
-}
-
-// GetPath returns the path to the repo.
-func (repo *GoGitRepo) GetPath() string {
-	return repo.path
 }
 
 // GetUserName returns the name the the user has used to configure git
@@ -244,7 +264,7 @@ func (repo *GoGitRepo) GetCoreEditor() (string, error) {
 	}
 
 	for _, cmd := range priorities {
-		if _, err = exec.LookPath(cmd); err == nil {
+		if _, err = execabs.LookPath(cmd); err == nil {
 			return cmd, nil
 		}
 
@@ -270,13 +290,80 @@ func (repo *GoGitRepo) GetRemotes() (map[string]string, error) {
 	return result, nil
 }
 
-// FetchRefs fetch git refs from a remote
-func (repo *GoGitRepo) FetchRefs(remote string, refSpec string) (string, error) {
+// LocalStorage return a billy.Filesystem giving access to $RepoPath/.git/git-bug
+func (repo *GoGitRepo) LocalStorage() billy.Filesystem {
+	return repo.localStorage
+}
+
+// GetBleveIndex return a bleve.Index that can be used to index documents
+func (repo *GoGitRepo) GetBleveIndex(name string) (bleve.Index, error) {
+	repo.indexesMutex.Lock()
+	defer repo.indexesMutex.Unlock()
+
+	if index, ok := repo.indexes[name]; ok {
+		return index, nil
+	}
+
+	path := filepath.Join(repo.path, "git-bug", "indexes", name)
+
+	index, err := bleve.Open(path)
+	if err == nil {
+		repo.indexes[name] = index
+		return index, nil
+	}
+
+	err = os.MkdirAll(path, os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+
+	mapping := bleve.NewIndexMapping()
+	mapping.DefaultAnalyzer = "en"
+
+	index, err = bleve.New(path, mapping)
+	if err != nil {
+		return nil, err
+	}
+
+	repo.indexes[name] = index
+
+	return index, nil
+}
+
+// ClearBleveIndex will wipe the given index
+func (repo *GoGitRepo) ClearBleveIndex(name string) error {
+	repo.indexesMutex.Lock()
+	defer repo.indexesMutex.Unlock()
+
+	path := filepath.Join(repo.path, "git-bug", "indexes", name)
+
+	err := os.RemoveAll(path)
+	if err != nil {
+		return err
+	}
+
+	if index, ok := repo.indexes[name]; ok {
+		err = index.Close()
+		if err != nil {
+			return err
+		}
+		delete(repo.indexes, name)
+	}
+
+	return nil
+}
+
+// FetchRefs fetch git refs matching a directory prefix to a remote
+// Ex: prefix="foo" will fetch any remote refs matching "refs/foo/*" locally.
+// The equivalent git refspec would be "refs/foo/*:refs/remotes/<remote>/foo/*"
+func (repo *GoGitRepo) FetchRefs(remote string, prefix string) (string, error) {
+	refspec := fmt.Sprintf("refs/%s/*:refs/remotes/%s/%s/*", prefix, remote, prefix)
+
 	buf := bytes.NewBuffer(nil)
 
 	err := repo.r.Fetch(&gogit.FetchOptions{
 		RemoteName: remote,
-		RefSpecs:   []config.RefSpec{config.RefSpec(refSpec)},
+		RefSpecs:   []config.RefSpec{config.RefSpec(refspec)},
 		Progress:   buf,
 	})
 	if err == gogit.NoErrAlreadyUpToDate {
@@ -289,13 +376,41 @@ func (repo *GoGitRepo) FetchRefs(remote string, refSpec string) (string, error) 
 	return buf.String(), nil
 }
 
-// PushRefs push git refs to a remote
-func (repo *GoGitRepo) PushRefs(remote string, refSpec string) (string, error) {
+// PushRefs push git refs matching a directory prefix to a remote
+// Ex: prefix="foo" will push any local refs matching "refs/foo/*" to the remote.
+// The equivalent git refspec would be "refs/foo/*:refs/foo/*"
+//
+// Additionally, PushRefs will update the local references in refs/remotes/<remote>/foo to match
+// the remote state.
+func (repo *GoGitRepo) PushRefs(remote string, prefix string) (string, error) {
+	refspec := fmt.Sprintf("refs/%s/*:refs/%s/*", prefix, prefix)
+
+	remo, err := repo.r.Remote(remote)
+	if err != nil {
+		return "", err
+	}
+
+	// to make sure that the push also create the corresponding refs/remotes/<remote>/... references,
+	// we need to have a default fetch refspec configured on the remote, to make our refs "track" the remote ones.
+	// This does not change the config on disk, only on memory.
+	hasCustomFetch := false
+	fetchRefspec := fmt.Sprintf("refs/%s/*:refs/remotes/%s/%s/*", prefix, remote, prefix)
+	for _, r := range remo.Config().Fetch {
+		if string(r) == fetchRefspec {
+			hasCustomFetch = true
+			break
+		}
+	}
+
+	if !hasCustomFetch {
+		remo.Config().Fetch = append(remo.Config().Fetch, config.RefSpec(fetchRefspec))
+	}
+
 	buf := bytes.NewBuffer(nil)
 
-	err := repo.r.Push(&gogit.PushOptions{
+	err = remo.Push(&gogit.PushOptions{
 		RemoteName: remote,
-		RefSpecs:   []config.RefSpec{config.RefSpec(refSpec)},
+		RefSpecs:   []config.RefSpec{config.RefSpec(refspec)},
 		Progress:   buf,
 	})
 	if err == gogit.NoErrAlreadyUpToDate {
@@ -439,12 +554,13 @@ func (repo *GoGitRepo) ReadTree(hash Hash) ([]TreeEntry, error) {
 }
 
 // StoreCommit will store a Git commit with the given Git tree
-func (repo *GoGitRepo) StoreCommit(treeHash Hash) (Hash, error) {
-	return repo.StoreCommitWithParent(treeHash, "")
+func (repo *GoGitRepo) StoreCommit(treeHash Hash, parents ...Hash) (Hash, error) {
+	return repo.StoreSignedCommit(treeHash, nil, parents...)
 }
 
-// StoreCommit will store a Git commit with the given Git tree
-func (repo *GoGitRepo) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, error) {
+// StoreCommit will store a Git commit with the given Git tree. If signKey is not nil, the commit
+// will be signed accordingly.
+func (repo *GoGitRepo) StoreSignedCommit(treeHash Hash, signKey *openpgp.Entity, parents ...Hash) (Hash, error) {
 	cfg, err := repo.r.Config()
 	if err != nil {
 		return "", err
@@ -465,8 +581,28 @@ func (repo *GoGitRepo) StoreCommitWithParent(treeHash Hash, parent Hash) (Hash, 
 		TreeHash: plumbing.NewHash(treeHash.String()),
 	}
 
-	if parent != "" {
-		commit.ParentHashes = []plumbing.Hash{plumbing.NewHash(parent.String())}
+	for _, parent := range parents {
+		commit.ParentHashes = append(commit.ParentHashes, plumbing.NewHash(parent.String()))
+	}
+
+	// Compute the signature if needed
+	if signKey != nil {
+		// first get the serialized commit
+		encoded := &plumbing.MemoryObject{}
+		if err := commit.Encode(encoded); err != nil {
+			return "", err
+		}
+		r, err := encoded.Reader()
+		if err != nil {
+			return "", err
+		}
+
+		// sign the data
+		var sig bytes.Buffer
+		if err := openpgp.ArmoredDetachSign(&sig, signKey, r, nil); err != nil {
+			return "", err
+		}
+		commit.PGPSignature = sig.String()
 	}
 
 	obj := repo.r.Storer.NewEncodedObject()
@@ -511,6 +647,14 @@ func (repo *GoGitRepo) FindCommonAncestor(commit1 Hash, commit2 Hash) (Hash, err
 	}
 
 	return Hash(commits[0].Hash.String()), nil
+}
+
+func (repo *GoGitRepo) ResolveRef(ref string) (Hash, error) {
+	r, err := repo.r.Reference(plumbing.ReferenceName(ref), false)
+	if err != nil {
+		return "", err
+	}
+	return Hash(r.Hash().String()), nil
 }
 
 // UpdateRef will create or update a Git reference
@@ -567,34 +711,48 @@ func (repo *GoGitRepo) CopyRef(source string, dest string) error {
 
 // ListCommits will return the list of tree hashes of a ref, in chronological order
 func (repo *GoGitRepo) ListCommits(ref string) ([]Hash, error) {
-	r, err := repo.r.Reference(plumbing.ReferenceName(ref), false)
+	return nonNativeListCommits(repo, ref)
+}
+
+func (repo *GoGitRepo) ReadCommit(hash Hash) (Commit, error) {
+	commit, err := repo.r.CommitObject(plumbing.NewHash(hash.String()))
 	if err != nil {
-		return nil, err
+		return Commit{}, err
 	}
 
-	commit, err := repo.r.CommitObject(r.Hash())
-	if err != nil {
-		return nil, err
+	parents := make([]Hash, len(commit.ParentHashes))
+	for i, parentHash := range commit.ParentHashes {
+		parents[i] = Hash(parentHash.String())
 	}
-	hashes := []Hash{Hash(commit.Hash.String())}
 
-	for {
-		commit, err = commit.Parent(0)
-		if err == object.ErrParentNotFound {
-			break
-		}
+	result := Commit{
+		Hash:     hash,
+		Parents:  parents,
+		TreeHash: Hash(commit.TreeHash.String()),
+	}
+
+	if commit.PGPSignature != "" {
+		// I can't find a way to just remove the signature when reading the encoded commit so we need to
+		// re-encode the commit without signature.
+
+		encoded := &plumbing.MemoryObject{}
+		err := commit.EncodeWithoutSignature(encoded)
 		if err != nil {
-			return nil, err
+			return Commit{}, err
 		}
 
-		if commit.NumParents() > 1 {
-			return nil, fmt.Errorf("multiple parents")
+		result.SignedData, err = encoded.Reader()
+		if err != nil {
+			return Commit{}, err
 		}
 
-		hashes = append([]Hash{Hash(commit.Hash.String())}, hashes...)
+		result.Signature, err = deArmorSignature(strings.NewReader(commit.PGPSignature))
+		if err != nil {
+			return Commit{}, err
+		}
 	}
 
-	return hashes, nil
+	return result, nil
 }
 
 func (repo *GoGitRepo) AllClocks() (map[string]lamport.Clock, error) {
@@ -603,7 +761,7 @@ func (repo *GoGitRepo) AllClocks() (map[string]lamport.Clock, error) {
 
 	result := make(map[string]lamport.Clock)
 
-	files, err := ioutil.ReadDir(stdpath.Join(repo.path, clockPath))
+	files, err := ioutil.ReadDir(filepath.Join(repo.path, "git-bug", clockPath))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -616,7 +774,7 @@ func (repo *GoGitRepo) AllClocks() (map[string]lamport.Clock, error) {
 		if c, ok := repo.clocks[name]; ok {
 			result[name] = c
 		} else {
-			c, err := lamport.LoadPersistedClock(stdpath.Join(repo.path, clockPath, name))
+			c, err := lamport.LoadPersistedClock(repo.LocalStorage(), filepath.Join(clockPath, name))
 			if err != nil {
 				return nil, err
 			}
@@ -631,6 +789,9 @@ func (repo *GoGitRepo) AllClocks() (map[string]lamport.Clock, error) {
 // GetOrCreateClock return a Lamport clock stored in the Repo.
 // If the clock doesn't exist, it's created.
 func (repo *GoGitRepo) GetOrCreateClock(name string) (lamport.Clock, error) {
+	repo.clocksMutex.Lock()
+	defer repo.clocksMutex.Unlock()
+
 	c, err := repo.getClock(name)
 	if err == nil {
 		return c, nil
@@ -639,12 +800,7 @@ func (repo *GoGitRepo) GetOrCreateClock(name string) (lamport.Clock, error) {
 		return nil, err
 	}
 
-	repo.clocksMutex.Lock()
-	defer repo.clocksMutex.Unlock()
-
-	p := stdpath.Join(repo.path, clockPath, name)
-
-	c, err = lamport.NewPersistedClock(p)
+	c, err = lamport.NewPersistedClock(repo.LocalStorage(), filepath.Join(clockPath, name))
 	if err != nil {
 		return nil, err
 	}
@@ -654,16 +810,11 @@ func (repo *GoGitRepo) GetOrCreateClock(name string) (lamport.Clock, error) {
 }
 
 func (repo *GoGitRepo) getClock(name string) (lamport.Clock, error) {
-	repo.clocksMutex.Lock()
-	defer repo.clocksMutex.Unlock()
-
 	if c, ok := repo.clocks[name]; ok {
 		return c, nil
 	}
 
-	p := stdpath.Join(repo.path, clockPath, name)
-
-	c, err := lamport.LoadPersistedClock(p)
+	c, err := lamport.LoadPersistedClock(repo.LocalStorage(), filepath.Join(clockPath, name))
 	if err == nil {
 		repo.clocks[name] = c
 		return c, nil
@@ -701,4 +852,22 @@ func (repo *GoGitRepo) AddRemote(name string, url string) error {
 	})
 
 	return err
+}
+
+// GetLocalRemote return the URL to use to add this repo as a local remote
+func (repo *GoGitRepo) GetLocalRemote() string {
+	return repo.path
+}
+
+// EraseFromDisk delete this repository entirely from the disk
+func (repo *GoGitRepo) EraseFromDisk() error {
+	err := repo.Close()
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Clean(strings.TrimSuffix(repo.path, string(filepath.Separator)+".git"))
+
+	// fmt.Println("Cleaning repo:", path)
+	return os.RemoveAll(path)
 }

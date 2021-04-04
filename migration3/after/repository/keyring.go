@@ -2,7 +2,7 @@ package repository
 
 import (
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/99designs/keyring"
 )
@@ -15,7 +15,7 @@ var ErrKeyringKeyNotFound = keyring.ErrKeyNotFound
 type Keyring interface {
 	// Returns an Item matching the key or ErrKeyringKeyNotFound
 	Get(key string) (Item, error)
-	// Stores an Item on the keyring
+	// Stores an Item on the keyring. Set is idempotent.
 	Set(item Item) error
 	// Removes the item with matching key
 	Remove(key string) error
@@ -38,7 +38,7 @@ func defaultKeyring() (Keyring, error) {
 		ServiceName: "git-bug",
 
 		// Fallback encrypted file
-		FileDir: path.Join(ucd, "git-bug", "keyring"),
+		FileDir: filepath.Join(ucd, "git-bug", "keyring"),
 		// As we write the file in the user's config directory, this file should already be protected by the OS against
 		// other user's access. We actually don't terribly need to protect it further and a password prompt across all
 		// UI's would be a pain. Therefore we use here a constant password so the file will be unreadable by generic file
@@ -47,4 +47,14 @@ func defaultKeyring() (Keyring, error) {
 			return "git-bug", nil
 		},
 	})
+}
+
+// replaceKeyring allow to replace the Keyring of the underlying repo
+type replaceKeyring struct {
+	TestedRepo
+	keyring Keyring
+}
+
+func (rk replaceKeyring) Keyring() Keyring {
+	return rk.keyring
 }

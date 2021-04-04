@@ -38,7 +38,7 @@ func TestMigrate23(t *testing.T) {
 
 	oldRepo, err := beforerepo.InitGoGitRepo(dir)
 	require.Nil(t, err, "got error when initializing old repository")
-	newRepo, err := afterrepo.NewGoGitRepo(dir, nil)
+	newRepo, err := afterrepo.OpenGoGitRepo(dir, nil)
 	require.Nil(t, err, "got error when initializing new repository")
 
 	oldVinc := beforeidentity.NewIdentityFull(
@@ -62,20 +62,17 @@ func TestMigrate23(t *testing.T) {
 	err = m.migrate(oldRepo, newRepo)
 	require.Nil(t, err, "got error when migrating repository")
 
-	bugs1 := afterbug.ReadAllLocal(newRepo)
+	bugs1 := afterbug.ReadAll(newRepo)
 	bug1 := (<-bugs1).Bug
 
-	operations := afterbug.NewOperationIterator(bug1)
-	require.Equal(t, true, operations.Next(), "unable to get first operation")
-
-	operation := operations.Value()
+	operation := bug1.Operations()[0]
 	createOperation, ok := operation.(*afterbug.CreateOperation)
 	require.True(t, ok)
 	require.Equal(t, title, createOperation.Title)
 	require.Equal(t, unix, createOperation.UnixTime)
 	require.Equal(t, message, createOperation.Message)
 
-	author := operation.GetAuthor()
+	author := operation.Author()
 	require.Equal(t, oldVinc.Name(), author.Name())
 	require.Equal(t, oldVinc.Login(), author.Login())
 	require.Equal(t, oldVinc.Email(), author.Email())

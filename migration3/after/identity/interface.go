@@ -2,6 +2,7 @@ package identity
 
 import (
 	"github.com/MichaelMure/git-bug-migration/migration3/after/entity"
+	"github.com/MichaelMure/git-bug-migration/migration3/after/repository"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/timestamp"
 )
@@ -35,6 +36,9 @@ type Interface interface {
 	// Keys return the last version of the valid keys
 	// Can be empty.
 	Keys() []*Key
+
+	// SigningKey return the key that should be used to sign new messages. If no key is available, return nil.
+	SigningKey(repo repository.RepoKeyring) (*Key, error)
 
 	// ValidKeysAtTime return the set of keys valid at a given lamport time for a given clock of another entity
 	// Can be empty.

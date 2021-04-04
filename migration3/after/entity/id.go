@@ -18,7 +18,7 @@ const UnsetId = Id("unset")
 // Id is an identifier for an entity or part of an entity
 type Id string
 
-// DeriveId generate an Id from some data, taken from a root part of the entity.
+// DeriveId generate an Id from the serialization of the object or part of the object.
 func DeriveId(data []byte) Id {
 	// My understanding is that sha256 is enough to prevent collision (git use that, so ...?)
 	// If you read this code, I'd be happy to be schooled.
@@ -65,9 +65,9 @@ func (i Id) MarshalGQL(w io.Writer) {
 
 // IsValid tell if the Id is valid
 func (i Id) Validate() error {
-	// Special case to
+	// Special case to detect outdated repo
 	if len(i) == 40 {
-		return fmt.Errorf("outdated repository format, please use https://github.com/MichaelMure/git-bug-migration to upgrade")
+		return fmt.Errorf("outdated repository format, please use https://github.com/MichaelMure/git-bug-migration/migration3/after-migration to upgrade")
 	}
 	if len(i) != idLength {
 		return fmt.Errorf("invalid length")

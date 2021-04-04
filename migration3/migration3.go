@@ -18,7 +18,8 @@ import (
 type Migration3 struct{}
 
 func (m *Migration3) Description() string {
-	return "Make bug and identities independent from the storage by making the ID generation self-contained"
+	return "Make bug and identities independent from the storage by making the ID generation self-contained. " +
+		"Also, migrate to the new full DAG entity data model."
 }
 
 func (m *Migration3) Run(repoPath string) error {
@@ -27,7 +28,7 @@ func (m *Migration3) Run(repoPath string) error {
 		return err
 	}
 
-	newRepo, err := afterrepo.NewGoGitRepo(repoPath, nil)
+	newRepo, err := afterrepo.OpenGoGitRepo(repoPath, nil)
 	if err != nil {
 		return err
 	}
@@ -36,12 +37,14 @@ func (m *Migration3) Run(repoPath string) error {
 }
 
 func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.ClockedRepo) error {
-	identities := beforeidentity.ReadAllLocal(oldRepo)
-	bugs := beforebug.ReadAllLocal(oldRepo)
+	userId, err := beforeidentity.GetUserIdentityId(oldRepo)
+	if err != nil && err != beforeidentity.ErrNoIdentitySet {
+		return err
+	}
 
 	migratedIdentities := map[beforeentity.Id]*afteridentity.Identity{}
 
-	for streamedIdentity := range identities {
+	for streamedIdentity := range beforeidentity.ReadAllLocal(oldRepo) {
 		if streamedIdentity.Err != nil {
 			if errors.Is(streamedIdentity.Err, beforeidentity.ErrInvalidFormatVersion) {
 				fmt.Print("skipping bug, already updated\n")
@@ -71,7 +74,7 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 		fmt.Printf("migrated to %s\n", newIdentity.Id().Human())
 	}
 
-	for streamedBug := range bugs {
+	for streamedBug := range beforebug.ReadAllLocal(oldRepo) {
 		if streamedBug.Err != nil {
 			if streamedBug.Err != beforebug.ErrInvalidFormatVersion {
 				fmt.Printf("got error when reading bug, assuming data is already migrated: %q\n", streamedBug.Err)
@@ -98,6 +101,14 @@ func (m *Migration3) migrate(oldRepo beforerepo.ClockedRepo, newRepo afterrepo.C
 
 	for oldIdentity := range migratedIdentities {
 		if err := beforeidentity.RemoveIdentity(oldRepo, oldIdentity); err != nil {
+			return err
+		}
+	}
+
+	if userId != beforeentity.UnsetId {
+		newUserId := migratedIdentities[userId]
+		err = afteridentity.SetUserIdentity(newRepo, newUserId)
+		if err != nil {
 			return err
 		}
 	}

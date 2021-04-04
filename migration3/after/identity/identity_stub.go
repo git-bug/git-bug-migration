@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/entity"
+	"github.com/MichaelMure/git-bug-migration/migration3/after/repository"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/timestamp"
 )
@@ -68,6 +69,10 @@ func (IdentityStub) AvatarUrl() string {
 }
 
 func (IdentityStub) Keys() []*Key {
+	panic("identities needs to be properly loaded with identity.ReadLocal()")
+}
+
+func (i *IdentityStub) SigningKey(repo repository.RepoKeyring) (*Key, error) {
 	panic("identities needs to be properly loaded with identity.ReadLocal()")
 }
 
