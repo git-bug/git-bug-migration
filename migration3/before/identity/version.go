@@ -8,14 +8,15 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/MichaelMure/git-bug-migration/migration1/after/repository"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/lamport"
-	"github.com/MichaelMure/git-bug-migration/migration1/after/util/text"
+	"github.com/MichaelMure/git-bug-migration/migration3/before/repository"
+	"github.com/MichaelMure/git-bug-migration/migration3/before/util/lamport"
+	"github.com/MichaelMure/git-bug-migration/migration3/before/util/text"
 )
 
+// 1: original format
 const formatVersion = 1
 
-var ErrIncorrectIdentityFormatVersion = fmt.Errorf("unknown format version")
+var ErrInvalidFormatVersion = fmt.Errorf("invalid format version")
 
 // Version is a complete set of information about an Identity at a point in time.
 type Version struct {
@@ -104,7 +105,7 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 	}
 
 	if aux.FormatVersion != formatVersion {
-		return ErrIncorrectIdentityFormatVersion
+		return ErrInvalidFormatVersion
 	}
 
 	v.time = aux.Time
