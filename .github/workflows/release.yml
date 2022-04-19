@@ -31,7 +31,7 @@ jobs:
         run: make test
 
       - name: Build binaries
-        run: go get github.com/mitchellh/gox && make releases
+        run: make releases
 
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
