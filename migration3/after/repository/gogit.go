@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/blevesearch/bleve"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
@@ -19,7 +20,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"golang.org/x/crypto/openpgp"
 	"golang.org/x/sys/execabs"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
@@ -31,8 +31,13 @@ var _ ClockedRepo = &GoGitRepo{}
 var _ TestedRepo = &GoGitRepo{}
 
 type GoGitRepo struct {
-	r    *gogit.Repository
-	path string
+	// Unfortunately, some parts of go-git are not thread-safe so we have to cover them with a big fat mutex here.
+	// See https://github.com/go-git/go-git/issues/48
+	// See https://github.com/go-git/go-git/issues/208
+	// See https://github.com/go-git/go-git/pull/186
+	rMutex sync.Mutex
+	r      *gogit.Repository
+	path   string
 
 	clocksMutex sync.Mutex
 	clocks      map[string]lamport.Clock
@@ -448,6 +453,9 @@ func (repo *GoGitRepo) StoreData(data []byte) (Hash, error) {
 
 // ReadData will attempt to read arbitrary data from the given hash
 func (repo *GoGitRepo) ReadData(hash Hash) ([]byte, error) {
+	repo.rMutex.Lock()
+	defer repo.rMutex.Unlock()
+
 	obj, err := repo.r.BlobObject(plumbing.NewHash(hash.String()))
 	if err != nil {
 		return nil, err
@@ -510,6 +518,9 @@ func (repo *GoGitRepo) StoreTree(mapping []TreeEntry) (Hash, error) {
 
 // ReadTree will return the list of entries in a Git tree
 func (repo *GoGitRepo) ReadTree(hash Hash) ([]TreeEntry, error) {
+	repo.rMutex.Lock()
+	defer repo.rMutex.Unlock()
+
 	h := plumbing.NewHash(hash.String())
 
 	// the given hash could be a tree or a commit
@@ -622,6 +633,9 @@ func (repo *GoGitRepo) StoreSignedCommit(treeHash Hash, signKey *openpgp.Entity,
 
 // GetTreeHash return the git tree hash referenced in a commit
 func (repo *GoGitRepo) GetTreeHash(commit Hash) (Hash, error) {
+	repo.rMutex.Lock()
+	defer repo.rMutex.Unlock()
+
 	obj, err := repo.r.CommitObject(plumbing.NewHash(commit.String()))
 	if err != nil {
 		return "", err
@@ -632,6 +646,9 @@ func (repo *GoGitRepo) GetTreeHash(commit Hash) (Hash, error) {
 
 // FindCommonAncestor will return the last common ancestor of two chain of commit
 func (repo *GoGitRepo) FindCommonAncestor(commit1 Hash, commit2 Hash) (Hash, error) {
+	repo.rMutex.Lock()
+	defer repo.rMutex.Unlock()
+
 	obj1, err := repo.r.CommitObject(plumbing.NewHash(commit1.String()))
 	if err != nil {
 		return "", err
@@ -715,6 +732,9 @@ func (repo *GoGitRepo) ListCommits(ref string) ([]Hash, error) {
 }
 
 func (repo *GoGitRepo) ReadCommit(hash Hash) (Commit, error) {
+	repo.rMutex.Lock()
+	defer repo.rMutex.Unlock()
+
 	commit, err := repo.r.CommitObject(plumbing.NewHash(hash.String()))
 	if err != nil {
 		return Commit{}, err

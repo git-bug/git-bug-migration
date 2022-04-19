@@ -8,10 +8,10 @@ import (
 	"sync"
 
 	"github.com/99designs/keyring"
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/blevesearch/bleve"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
-	"golang.org/x/crypto/openpgp"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/util/lamport"
 )
@@ -117,7 +117,7 @@ func (r *mockRepoCommon) GetCoreEditor() (string, error) {
 // GetRemotes returns the configured remotes repositories.
 func (r *mockRepoCommon) GetRemotes() (map[string]string, error) {
 	return map[string]string{
-		"origin": "git://github.com/MichaelMure/git-bug-migration/migration3/after",
+		"origin": "git://github.com/MichaelMure/git-bug",
 	}, nil
 }
 

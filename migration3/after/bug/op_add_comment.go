@@ -31,9 +31,8 @@ func (op *AddCommentOperation) Apply(snapshot *Snapshot) {
 	snapshot.addActor(op.Author_)
 	snapshot.addParticipant(op.Author_)
 
-	commentId := entity.CombineIds(snapshot.Id(), op.Id())
 	comment := Comment{
-		id:       commentId,
+		id:       entity.CombineIds(snapshot.Id(), op.Id()),
 		Message:  op.Message,
 		Author:   op.Author_,
 		Files:    op.Files,
@@ -43,7 +42,7 @@ func (op *AddCommentOperation) Apply(snapshot *Snapshot) {
 	snapshot.Comments = append(snapshot.Comments, comment)
 
 	item := &AddCommentTimelineItem{
-		CommentTimelineItem: NewCommentTimelineItem(commentId, comment),
+		CommentTimelineItem: NewCommentTimelineItem(comment),
 	}
 
 	snapshot.Timeline = append(snapshot.Timeline, item)
@@ -65,7 +64,7 @@ func (op *AddCommentOperation) Validate() error {
 	return nil
 }
 
-// UnmarshalJSON is a two step JSON unmarshalling
+// UnmarshalJSON is a two-steps JSON unmarshalling
 // This workaround is necessary to avoid the inner OpBase.MarshalJSON
 // overriding the outer op's MarshalJSON
 func (op *AddCommentOperation) UnmarshalJSON(data []byte) error {

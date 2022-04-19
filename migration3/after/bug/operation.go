@@ -71,7 +71,7 @@ func idOperation(op Operation, base *OpBase) entity.Id {
 	return base.id
 }
 
-func operationUnmarshaller(author identity.Interface, raw json.RawMessage) (dag.Operation, error) {
+func operationUnmarshaller(author identity.Interface, raw json.RawMessage, resolver identity.Resolver) (dag.Operation, error) {
 	var t struct {
 		OperationType OperationType `json:"type"`
 	}
@@ -135,7 +135,7 @@ func operationUnmarshaller(author identity.Interface, raw json.RawMessage) (dag.
 // OpBase implement the common code for all operations
 type OpBase struct {
 	OperationType OperationType      `json:"type"`
-	Author_       identity.Interface `json:"author"`
+	Author_       identity.Interface `json:"-"` // not serialized
 	// TODO: part of the data model upgrade, this should eventually be a timestamp + lamport
 	UnixTime int64             `json:"timestamp"`
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -178,7 +178,6 @@ func (base *OpBase) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		OperationType OperationType     `json:"type"`
-		Author        json.RawMessage   `json:"author"`
 		UnixTime      int64             `json:"timestamp"`
 		Metadata      map[string]string `json:"metadata,omitempty"`
 		Nonce         []byte            `json:"nonce"`
@@ -188,14 +187,7 @@ func (base *OpBase) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// delegate the decoding of the identity
-	author, err := identity.UnmarshalJSON(aux.Author)
-	if err != nil {
-		return err
-	}
-
 	base.OperationType = aux.OperationType
-	base.Author_ = author
 	base.UnixTime = aux.UnixTime
 	base.Metadata = aux.Metadata
 	base.Nonce = aux.Nonce

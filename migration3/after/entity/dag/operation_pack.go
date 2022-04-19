@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/pkg/errors"
-	"golang.org/x/crypto/openpgp"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/identity"
@@ -80,7 +81,7 @@ func (opp *operationPack) Validate() error {
 	return nil
 }
 
-// Write write the OperationPack in git, with zero, one or more parent commits.
+// Write writes the OperationPack in git, with zero, one or more parent commits.
 // If the repository has a keypair able to sign (that is, with a private key), the resulting commit is signed with that key.
 // Return the hash of the created commit.
 func (opp *operationPack) Write(def Definition, repo repository.Repo, parentCommit ...repository.Hash) (repository.Hash, error) {
@@ -272,7 +273,7 @@ func readOperationPack(def Definition, repo repository.RepoData, resolver identi
 	keys := author.ValidKeysAtTime(fmt.Sprintf(editClockPattern, def.Namespace), editTime)
 	if len(keys) > 0 {
 		keyring := PGPKeyring(keys)
-		_, err = openpgp.CheckDetachedSignature(keyring, commit.SignedData, commit.Signature)
+		_, err = openpgp.CheckDetachedSignature(keyring, commit.SignedData, commit.Signature, nil)
 		if err != nil {
 			return nil, fmt.Errorf("signature failure: %v", err)
 		}
@@ -313,7 +314,7 @@ func unmarshallPack(def Definition, resolver identity.Resolver, data []byte) ([]
 
 	for _, raw := range aux.Operations {
 		// delegate to specialized unmarshal function
-		op, err := def.OperationUnmarshaler(author, raw)
+		op, err := def.OperationUnmarshaler(author, raw, resolver)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -335,6 +336,9 @@ func (pk PGPKeyring) KeysById(id uint64) []openpgp.Key {
 			result = append(result, openpgp.Key{
 				PublicKey:  key.Public(),
 				PrivateKey: key.Private(),
+				SelfSignature: &packet.Signature{
+					IsPrimaryId: func() *bool { b := true; return &b }(),
+				},
 			})
 		}
 	}
@@ -347,12 +351,13 @@ func (pk PGPKeyring) KeysByIdUsage(id uint64, requiredUsage byte) []openpgp.Key 
 }
 
 func (pk PGPKeyring) DecryptionKeys() []openpgp.Key {
-	result := make([]openpgp.Key, len(pk))
-	for i, key := range pk {
-		result[i] = openpgp.Key{
-			PublicKey:  key.Public(),
-			PrivateKey: key.Private(),
-		}
-	}
-	return result
+	// result := make([]openpgp.Key, len(pk))
+	// for i, key := range pk {
+	// 	result[i] = openpgp.Key{
+	// 		PublicKey:  key.Public(),
+	// 		PrivateKey: key.Private(),
+	// 	}
+	// }
+	// return result
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 type TimelineItem interface {
-	// ID return the identifier of the item
+	// Id return the identifier of the item
 	Id() entity.Id
 }
 
@@ -26,6 +26,7 @@ type CommentHistoryStep struct {
 
 // CommentTimelineItem is a TimelineItem that holds a Comment and its edition history
 type CommentTimelineItem struct {
+	// id should be the same as in Comment
 	id        entity.Id
 	Author    identity.Interface
 	Message   string
@@ -35,9 +36,9 @@ type CommentTimelineItem struct {
 	History   []CommentHistoryStep
 }
 
-func NewCommentTimelineItem(ID entity.Id, comment Comment) CommentTimelineItem {
+func NewCommentTimelineItem(comment Comment) CommentTimelineItem {
 	return CommentTimelineItem{
-		id:        ID,
+		id:        comment.id,
 		Author:    comment.Author,
 		Message:   comment.Message,
 		Files:     comment.Files,
