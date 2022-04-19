@@ -34,12 +34,12 @@ func (op *EditCommentOperation) Apply(snapshot *Snapshot) {
 	// Todo: currently any message can be edited, even by a different author
 	// crypto signature are needed.
 
-	snapshot.addActor(op.Author_)
+	// Recreate the Comment Id to match on
+	commentId := entity.CombineIds(snapshot.Id(), op.Target)
 
 	var target TimelineItem
-
 	for i, item := range snapshot.Timeline {
-		if item.Id() == op.Target {
+		if item.Id() == commentId {
 			target = snapshot.Timeline[i]
 			break
 		}
@@ -51,7 +51,7 @@ func (op *EditCommentOperation) Apply(snapshot *Snapshot) {
 	}
 
 	comment := Comment{
-		id:       op.Target,
+		id:       commentId,
 		Message:  op.Message,
 		Files:    op.Files,
 		UnixTime: timestamp.Timestamp(op.UnixTime),
@@ -62,12 +62,18 @@ func (op *EditCommentOperation) Apply(snapshot *Snapshot) {
 		target.Append(comment)
 	case *AddCommentTimelineItem:
 		target.Append(comment)
+	default:
+		// somehow, the target matched on something that is not a comment
+		// we make the op a no-op
+		return
 	}
+
+	snapshot.addActor(op.Author_)
 
 	// Updating the corresponding comment
 
 	for i := range snapshot.Comments {
-		if snapshot.Comments[i].Id() == op.Target {
+		if snapshot.Comments[i].Id() == commentId {
 			snapshot.Comments[i].Message = op.Message
 			snapshot.Comments[i].Files = op.Files
 			break
@@ -95,7 +101,7 @@ func (op *EditCommentOperation) Validate() error {
 	return nil
 }
 
-// UnmarshalJSON is a two step JSON unmarshalling
+// UnmarshalJSON is two steps JSON unmarshalling
 // This workaround is necessary to avoid the inner OpBase.MarshalJSON
 // overriding the outer op's MarshalJSON
 func (op *EditCommentOperation) UnmarshalJSON(data []byte) error {
@@ -138,7 +144,7 @@ func NewEditCommentOp(author identity.Interface, unixTime int64, target entity.I
 	}
 }
 
-// Convenience function to apply the operation
+// EditComment is a convenience function to apply the operation
 func EditComment(b Interface, author identity.Interface, unixTime int64, target entity.Id, message string) (*EditCommentOperation, error) {
 	return EditCommentWithFiles(b, author, unixTime, target, message, nil)
 }
@@ -152,13 +158,13 @@ func EditCommentWithFiles(b Interface, author identity.Interface, unixTime int64
 	return editCommentOp, nil
 }
 
-// Convenience function to edit the body of a bug (the first comment)
+// EditCreateComment is a convenience function to edit the body of a bug (the first comment)
 func EditCreateComment(b Interface, author identity.Interface, unixTime int64, message string) (*EditCommentOperation, error) {
 	createOp := b.FirstOp().(*CreateOperation)
 	return EditComment(b, author, unixTime, createOp.Id(), message)
 }
 
-// Convenience function to edit the body of a bug (the first comment)
+// EditCreateCommentWithFiles is a convenience function to edit the body of a bug (the first comment)
 func EditCreateCommentWithFiles(b Interface, author identity.Interface, unixTime int64, message string, files []repository.Hash) (*EditCommentOperation, error) {
 	createOp := b.FirstOp().(*CreateOperation)
 	return EditCommentWithFiles(b, author, unixTime, createOp.Id(), message, files)

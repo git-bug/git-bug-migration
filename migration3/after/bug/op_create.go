@@ -3,7 +3,6 @@ package bug
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/MichaelMure/git-bug-migration/migration3/after/entity"
 	"github.com/MichaelMure/git-bug-migration/migration3/after/entity/dag"
@@ -56,9 +55,8 @@ func (op *CreateOperation) Apply(snapshot *Snapshot) {
 
 	snapshot.Title = op.Title
 
-	commentId := entity.CombineIds(snapshot.Id(), op.Id())
 	comment := Comment{
-		id:       commentId,
+		id:       entity.CombineIds(snapshot.Id(), op.Id()),
 		Message:  op.Message,
 		Author:   op.Author_,
 		UnixTime: timestamp.Timestamp(op.UnixTime),
@@ -70,7 +68,7 @@ func (op *CreateOperation) Apply(snapshot *Snapshot) {
 
 	snapshot.Timeline = []TimelineItem{
 		&CreateTimelineItem{
-			CommentTimelineItem: NewCommentTimelineItem(commentId, comment),
+			CommentTimelineItem: NewCommentTimelineItem(comment),
 		},
 	}
 }
@@ -94,11 +92,8 @@ func (op *CreateOperation) Validate() error {
 	if text.Empty(op.Title) {
 		return fmt.Errorf("title is empty")
 	}
-	if strings.Contains(op.Title, "\n") {
-		return fmt.Errorf("title should be a single line")
-	}
-	if !text.Safe(op.Title) {
-		return fmt.Errorf("title is not fully printable")
+	if !text.SafeOneLine(op.Title) {
+		return fmt.Errorf("title has unsafe characters")
 	}
 
 	if !text.Safe(op.Message) {
